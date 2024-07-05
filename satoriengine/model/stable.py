@@ -62,7 +62,8 @@ class StableModel(StableModelInterface):
             } if self.xgbStable else {}
         except Exception as e:
             logging.info('race ignored in feature importance:', e)
-            self.featureImports = {}
+            self.featureImports = {name: fimport for fimport, name in zip(
+                np.ones(self.featureSet.columns.shape), self.featureSet.columns)}
             # not sure how this error can happen because .fit is run before this function is called.
             # but it only happens rarely on startup so it's a race condition and has no effect.
             # File "/usr/local/lib/python3.9/threading.py", line 980, in _bootstrap_inner
