@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore')
+
 from typing import Callable, Union, Any, Dict, List, Optional
 import copy
 
@@ -52,6 +55,9 @@ from sktime.performance_metrics.forecasting import (
     MeanAbsoluteScaledError,
 )  # check if this is needed
 import optuna
+
+from .determine_features import GeneralizedHyperparameterSearch
+from satorilib.logging import debug, info, error
 
 
 class ForecastModelResult:
@@ -224,8 +230,8 @@ def perform_backtesting(
     fixed_train_size=False,
     suppress_warnings_fit=True,
 ):
-    print(len(y))
-    print(len(y.loc[:end_validation]))
+    # debug(len(y))
+    # debug(len(y.loc[:end_validation]))
     if is_sarimax:
         backtesting_params = {
             "forecaster": forecaster,
@@ -264,328 +270,8 @@ def perform_backtesting(
             **backtesting_params
         )
 
-    print(f"Backtest error ({metric}): {backtest_metric}")
+    debug(f"Backtest error ({metric}): {backtest_metric}")
     return backtest_metric, backtest_predictions
-
-
-class GeneralizedHyperparameterSearch:
-    def __init__(
-        self,
-        forecaster,
-        y,
-        lags,
-        exog=None,
-        steps=12,
-        metric="mean_absolute_scaled_error",
-        initial_train_size=None,
-        fixed_train_size=False,
-        refit=False,
-        return_best=True,
-        n_jobs=1, # was "auto" ( consideration for future )
-        verbose=False,
-        show_progress=True,
-    ):
-        self.forecaster = forecaster
-        self.y = y
-        self.exog = exog
-        self.steps = steps
-        self.metric = metric
-        self.initial_train_size = initial_train_size
-        self.fixed_train_size = fixed_train_size
-        self.refit = refit
-        self.return_best = return_best
-        self.n_jobs = n_jobs
-        self.verbose = verbose
-        self.show_progress = show_progress
-        self.default_param_ranges = {
-            "lightgbm": {
-                "n_estimators": ("int", 400, 1200, 100),
-                "max_depth": ("int", 3, 10, 1),
-                "min_data_in_leaf": ("int", 25, 500),
-                "learning_rate": ("float", 0.01, 0.5),
-                "feature_fraction": ("float", 0.5, 1, 0.1),
-                "max_bin": ("int", 50, 250, 25),
-                "reg_alpha": ("float", 0, 1, 0.1),
-                "reg_lambda": ("float", 0, 1, 0.1),
-                "lags": ("categorical", [lags]),
-            },
-            "catboost": {
-                "n_estimators": ("int", 100, 1000, 100),
-                "max_depth": ("int", 3, 10, 1),
-                "learning_rate": ("float", 0.01, 1),
-                "lags": ("categorical", [lags]),
-            },
-            "randomforest": {
-                "n_estimators": ("int", 400, 1200, 100),
-                "max_depth": ("int", 3, 10, 1),
-                "ccp_alpha": ("float", 0, 1, 0.1),
-                "lags": ("categorical", [lags]),
-            },
-            "xgboost": {
-                "n_estimators": ("int", 30, 5000),
-                "max_depth": ("int", -1, 256),
-                "learning_rate": ("float", 0.01, 1),
-                "subsample": ("float", 0.01, 1.0),
-                "colsample_bytree": ("float", 0.01, 1.0),
-                "gamma": ("float", 0, 1),
-                "reg_alpha": ("float", 0, 1),
-                "reg_lambda": ("float", 0, 1),
-                "lags": ("categorical", [lags]),
-            },
-            "histgradient": {
-                "max_iter": ("int", 400, 1200, 100),
-                "max_depth": ("int", 1, 256),
-                "learning_rate": ("float", 0.01, 1),
-                "min_samples_leaf": ("int", 1, 20, 1),
-                "l2_regularization": ("float", 0, 1),
-                "lags": ("categorical", [lags]),
-            },
-        }
-        self.model_type = self._detect_model_type()
-        self.current_param_ranges = self.default_param_ranges.get(
-            self.model_type, {}
-        ).copy()
-
-    def _detect_model_type(self):
-        if "LGBMRegressor" in str(type(self.forecaster.regressor)):
-            return "lightgbm"
-        elif "CatBoostRegressor" in str(type(self.forecaster.regressor)):
-            return "catboost"
-        elif "RandomForestRegressor" in str(type(self.forecaster.regressor)):
-            return "randomforest"
-        elif "XGBRegressor" in str(type(self.forecaster.regressor)):
-            return "xgboost"
-        elif "HistGradientBoostingRegressor" in str(type(self.forecaster.regressor)):
-            return "histgradient"
-        else:
-            return "unknown"
-
-    def exclude_parameters(self, params_to_exclude):
-        """
-        Exclude specified parameters from the search space.
-
-        :param params_to_exclude: List of parameter names to exclude
-        """
-        for param in params_to_exclude:
-            if param in self.current_param_ranges:
-                del self.current_param_ranges[param]
-            else:
-                print(
-                    f"Warning: Parameter '{param}' not found in the current search space."
-                )
-
-    def include_parameters(self, params_to_include):
-        """
-        Include previously excluded parameters back into the search space.
-
-        :param params_to_include: List of parameter names to include
-        """
-        default_ranges = self.default_param_ranges.get(self.model_type, {})
-        for param in params_to_include:
-            if param in default_ranges and param not in self.current_param_ranges:
-                self.current_param_ranges[param] = default_ranges[param]
-            elif param in self.current_param_ranges:
-                print(
-                    f"Warning: Parameter '{param}' is already in the current search space."
-                )
-            else:
-                print(
-                    f"Warning: Parameter '{param}' not found in the default search space for {self.model_type}."
-                )
-
-    def update_parameter_range(self, param, new_range):
-        """
-        Update the range of a specific parameter.
-
-        :param param: Name of the parameter to update
-        :param new_range: New range for the parameter (tuple)
-        """
-        if param in self.current_param_ranges:
-            self.current_param_ranges[param] = new_range
-        else:
-            print(
-                f"Warning: Parameter '{param}' not found in the current search space."
-            )
-
-    def display_available_parameters(self):
-        """
-        Display the available parameters and their current ranges for the selected model type.
-        """
-        print(f"Available parameters for {self.model_type.upper()} model:")
-        self._display_params(self.current_param_ranges)
-        print(
-            "\nYou can override these parameters by passing a dictionary to the bayesian_search method."
-        )
-
-    def _display_params(self, param_ranges):
-        for param, config in param_ranges.items():
-            param_type = config[0]
-            if param_type in ["int", "float"]:
-                step = config[3] if len(config) > 3 else "N/A"
-                print(
-                    f"  {param}: {param_type}, range: {config[1]} to {config[2]}, step: {step}"
-                )
-            elif param_type == "categorical":
-                print(f"  {param}: {param_type}, choices: {config[1]}")
-
-    def _prepare_lags_grid(self, lags):
-        if isinstance(lags, dict):
-            return lags
-        elif isinstance(lags, (list, np.ndarray)):
-            return {"lags": lags}
-        else:
-            raise ValueError("lags must be either a dict, list, or numpy array")
-
-    def _prepare_param_grid(self, param_ranges):
-        param_grid = {}
-        for param, config in param_ranges.items():
-            param_type = config[0]
-            if param_type in ["int", "float"]:
-                start, stop = config[1:3]
-                step = config[3] if len(config) > 3 else 1
-                if param_type == "int":
-                    param_grid[param] = list(range(start, stop + 1, step))
-                else:
-                    param_grid[param] = list(np.arange(start, stop + step, step))
-            elif param_type == "categorical":
-                param_grid[param] = config[1]
-        return param_grid
-
-    def _prepare_param_distributions(self, param_ranges):
-        param_distributions = {}
-        for param, config in param_ranges.items():
-            param_type = config[0]
-            if param_type in ["int", "float"]:
-                start, stop = config[1:3]
-                step = config[3] if len(config) > 3 else 1
-                if param_type == "int":
-                    param_distributions[param] = np.arange(
-                        start, stop + 1, step, dtype=int
-                    )
-                else:
-                    param_distributions[param] = np.arange(start, stop + step, step)
-            elif param_type == "categorical":
-                param_distributions[param] = config[1]
-        return param_distributions
-
-    def grid_search(self, lags_grid, param_ranges=None):
-        if param_ranges is None:
-            param_ranges = self.current_param_ranges
-        else:
-            self.current_param_ranges.update(param_ranges)
-
-        param_grid = self._prepare_param_grid(self.current_param_ranges)
-        lags_grid = self._prepare_lags_grid(lags_grid)
-
-        return grid_search_forecaster(
-            forecaster=self.forecaster,
-            y=self.y,
-            exog=self.exog,
-            param_grid=param_grid,
-            lags_grid=lags_grid,
-            steps=self.steps,
-            metric=self.metric,
-            initial_train_size=self.initial_train_size,
-            fixed_train_size=self.fixed_train_size,
-            refit=self.refit,
-            return_best=self.return_best,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-            show_progress=self.show_progress,
-        )
-
-    # needs to be fixed
-    def random_search(self, lags_grid, param_ranges=None, n_iter=10, random_state=123):
-        if param_ranges is None:
-            param_ranges = self.current_param_ranges
-        else:
-            self.current_param_ranges.update(param_ranges)
-
-        param_distributions = self._prepare_param_distributions(
-            self.current_param_ranges
-        )
-
-        return random_search_forecaster(
-            forecaster=self.forecaster,
-            y=self.y,
-            exog=self.exog,
-            param_distributions=param_distributions,
-            lags_grid=lags_grid,
-            steps=self.steps,
-            n_iter=n_iter,
-            metric=self.metric,
-            initial_train_size=self.initial_train_size,
-            fixed_train_size=self.fixed_train_size,
-            refit=self.refit,
-            return_best=self.return_best,
-            random_state=random_state,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-            show_progress=self.show_progress,
-        )
-
-    def bayesian_search(self, param_ranges=None, n_trials=20, random_state=123):
-        if param_ranges is None:
-            param_ranges = {}
-
-        # Update current_param_ranges with user-provided param_ranges
-        for param, range_value in param_ranges.items():
-            if param in self.current_param_ranges:
-                self.current_param_ranges[param] = range_value
-            else:
-                self.current_param_ranges[param] = range_value
-                print(f"New parameter '{param}' added to the search space.")
-
-        def create_search_space(trial, param_ranges):
-            search_space = {}
-            for param, config in param_ranges.items():
-                param_type = config[0]
-
-                if param_type == "int":
-                    start, stop = config[1:3]
-                    step = config[3] if len(config) > 3 else 1
-                    search_space[param] = trial.suggest_int(
-                        param, start, stop, step=step
-                    )
-                elif param_type == "float":
-                    start, stop = config[1:3]
-                    step = config[3] if len(config) > 3 else None
-                    if step:
-                        search_space[param] = trial.suggest_float(
-                            param, start, stop, step=step
-                        )
-                    else:
-                        search_space[param] = trial.suggest_float(param, start, stop)
-                elif param_type == "categorical":
-                    choices = config[1]
-                    search_space[param] = trial.suggest_categorical(param, choices)
-                else:
-                    raise ValueError(
-                        f"Unknown parameter type for {param}: {param_type}"
-                    )
-            return search_space
-
-        def search_space_wrapper(trial):
-            return create_search_space(trial, self.current_param_ranges)
-
-        print(random_state)
-        return bayesian_search_forecaster(
-            forecaster=self.forecaster,
-            y=self.y,
-            exog=self.exog,
-            search_space=search_space_wrapper,
-            steps=self.steps,
-            metric=self.metric,
-            initial_train_size=self.initial_train_size,
-            fixed_train_size=self.fixed_train_size,
-            refit=self.refit,
-            return_best=self.return_best,
-            n_trials=n_trials,
-            random_state=random_state,
-            n_jobs=self.n_jobs,
-            verbose=self.verbose,
-            show_progress=self.show_progress,
-        )
 
 
 def predict_interval_custom(
@@ -681,13 +367,13 @@ def calculate_interval_coverage(
         predictions_aligned["upper_bound"] - predictions_aligned["lower_bound"]
     ).sum()
 
-    print(f"Total data points: {total_count}")
-    print(f"Data points within range: {in_range_count}")
-    print(
+    # debug(f"Total data points: {total_count}")
+    # debug(f"Data points within range: {in_range_count}")
+    debug(
         f"Predicted interval coverage assuming Gaussian distribution: {round(100*coverage, 2)}%"
     )
-    print(f"Total area of the interval: {round(area, 2)}")
-    # print(coverage_df)
+    # debug(f"Total area of the interval: {round(area, 2)}")
+    # debug(coverage_df)
 
     return coverage, area
 
@@ -968,7 +654,7 @@ def model_create_train_test_and_predict(
                 n_evals=50,
                 strategy="refit",
                 scoring=MeanAbsoluteScaledError(sp=1),
-                verbose=1,
+                verbose=-1,
             )
 
             fos.fit(y_train)
@@ -977,7 +663,7 @@ def model_create_train_test_and_predict(
         elif (
             model_name.lower() == "skt_ets"
         ):  # faster implementation available and should be implemented in the future
-            print("entered")
+            # debug("entered")
             forecaster = AutoETS(
                 error="add",
                 trend=None,
@@ -1030,7 +716,6 @@ def model_create_train_test_and_predict(
                 splist.append(forecasting_steps)
 
             if dayofweek_seasonality == True:
-                print("inside")
                 if sampling_timedelta <= pd.Timedelta(hours=1):
                     multiplier = 7
                     splist.append(forecasting_steps * multiplier)
@@ -1041,7 +726,6 @@ def model_create_train_test_and_predict(
             if (
                 week_seasonality == True
             ):  # calculation of week seasonality test to determine seasonal period of a year can be improved in the future by using day_of_year instead of week_of_year
-                print("inside")
                 if sampling_timedelta <= pd.Timedelta(hours=1):
                     multiplier = 365.25
                     splist.append(forecasting_steps * multiplier)
@@ -1049,7 +733,6 @@ def model_create_train_test_and_predict(
                     multiplier = max(1, int(day_timedelta / sampling_timedelta))
                     splist.append(365.25 * multiplier)
 
-            print(splist)
             forecaster = TBATS(
                 use_box_cox=use_box_cox,
                 box_cox_bounds=(0, 1),

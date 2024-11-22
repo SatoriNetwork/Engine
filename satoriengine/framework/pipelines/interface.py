@@ -2,6 +2,7 @@ import pandas as pd
 from typing import Union, Optional, Any
 import joblib
 import os
+from satorilib.logging import error
 
 
 class TrainingResult:
@@ -23,7 +24,7 @@ class PipelineInterface:
         try:
             return joblib.load(modelPath)
         except Exception as e:
-            print(f"Error while loading the model : {e}")
+            error(f"Deleting Model file : {e}", print=True)
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
             return None
