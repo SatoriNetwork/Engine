@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings('ignore')
 from typing import Union, Dict
 import copy
 import json
@@ -10,9 +12,11 @@ from satorilib.api.hash import generatePathId
 from satorilib.api.time import datetimeToTimestamp, now
 from satorilib.concepts import Stream, StreamId, Observation
 from satorilib.api.disk.filetypes.csv import CSVManager
-from satorilib.logging import debug, info, error
+from satorilib.logging import debug, info, error, setup, DEBUG, INFO
 from satoriengine.framework.Data import StreamForecast
 from satoriengine.framework.pipelines import PipelineInterface, SKPipeline, StarterPipeline
+
+setup(level=INFO)
 
 
 class Engine:
@@ -50,10 +54,10 @@ class Engine:
             streamModel.run_forever()
             
         if streamModel is not None and len(streamModel.data) > 1:
-            debug("Making Prediction for New Observation", color="teal")
-            streamModel.produce_prediction() #
+            debug("Making Prediction for New Observation", print=True)
+            streamModel.produce_prediction() 
         else:
-            print(f"No model found for stream {observation.streamId}")
+            info(f"No model found for stream {observation.streamId}")
 
     def handle_error(self, error):
         print(f"An error occurred new_observaiton: {error}")
@@ -124,6 +128,8 @@ class StreamModel:
                     predictionHistory=CSVManager().read(self.prediction_data_path()),
                 )
                 self.prediction_produced.on_next(streamforecast)
+            else:
+                error("Forecast failed : ", forecast)
 
     def save_prediction(
         self,
@@ -150,11 +156,11 @@ class StreamModel:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
     def data_path(self) -> str:
-        # print(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv")
+        # debug(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv", print=True)
         return f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv"
 
     def prediction_data_path(self) -> str:
-        # print(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv")
+        # debug(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv", print=True)
         return f"/Satori/Neuron/data/{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv"
 
     def model_path(self) -> str:
@@ -203,7 +209,7 @@ class StreamModel:
                         self.produce_prediction(self.stable)
             else:
                 if not trainingResult.stagnated:
-                    debug("Starter Pipeline", color='teal')
+                    debug("Starter Pipeline", print=True)
                 else:
                     error("Model Training Failed, Breaking out of the Loop")
                 break

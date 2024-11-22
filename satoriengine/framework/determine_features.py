@@ -1,49 +1,42 @@
+import warnings
+
+warnings.filterwarnings('ignore')
+
+
 from typing import Callable, Union
 
-# Data processing
-# ==============================================================================
 import numpy as np
 import pandas as pd
 import datetime
-
-# Modelling and Forecasting
-# ==============================================================================
 from lightgbm import LGBMRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor
-
-# Supplemental functions related to feature extraction and selection
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import RFECV
 from sklearn.feature_selection import RFE
-
-# Statistical tests for stationarity
 from scipy.stats import kruskal
 from statsmodels.tsa.stattools import adfuller, kpss
-
-# skforecast wrappers/interfaces that simply the use of a combination of different capabilities
 from skforecast.ForecasterBaseline import ForecasterEquivalentDate
 from skforecast.ForecasterAutoreg import ForecasterAutoreg
 from skforecast.ForecasterAutoregDirect import ForecasterAutoregDirect
 from skforecast.model_selection import grid_search_forecaster, random_search_forecaster, bayesian_search_forecaster
 from skforecast.model_selection import select_features
-
 from skforecast.ForecasterSarimax import ForecasterSarimax
 from pmdarima import auto_arima
-
-
-
-
 from pandas.tseries.frequencies import to_offset
 from datetime import datetime, timedelta
-
-# linear regressors : LinearRegression(), Lasso() or Ridge()
 from sklearn.linear_model import LinearRegression, Lasso, Ridge
 from lineartree import LinearBoostRegressor
-
 from sklearn.preprocessing import StandardScaler
+
+from .process import fractional_hour_generator, test_seasonality, create_exogenous_features, generate_exog_data, filter_dataframe_col
+
+from satorilib.logging import debug, info, error
+
+
+
 
 class Features:
     def __init__(
@@ -134,270 +127,6 @@ def create_forecaster(model_type, if_exog=None, random_state=None, verbose=None,
 
     return model_creators[model_type]()
 
-def fractional_hour_generator (datetimeparameter):
-    # print('starting function')
-    whole_time = datetimeparameter.time()
-    fractional_hour = whole_time.hour + whole_time.minute/60.0 + 1
-    return fractional_hour
-
-def test_seasonality(differenced_dataset, SF, sampling_frequency):
-    print(f"new seasonality test with SF = {SF}")
-
-    if SF == 'month':
-        differenced_dataset[SF] = differenced_dataset.index.month
-    elif SF == 'week':
-        differenced_dataset[SF] = differenced_dataset.index.isocalendar().week
-    elif SF == 'day_of_week':
-        differenced_dataset[SF] = differenced_dataset.index.dayofweek + 1
-    elif SF == 'hour':
-        differenced_dataset[SF] = differenced_dataset.index.hour + 1
-    elif SF == 'fractional_hour':
-        differenced_dataset[SF] = differenced_dataset.index.map(fractional_hour_generator)
-    else:
-        # For any other potential SF values
-        try:
-            differenced_dataset[SF] = getattr(differenced_dataset.index, SF)
-        except AttributeError:
-            print(f"Error: {SF} is not a valid attribute of the DatetimeIndex.")
-            return False, None
-
-    unique_seasonal_frequency = differenced_dataset[SF].unique()
-
-    if len(unique_seasonal_frequency) < 2:
-        print(f"{SF.capitalize()} has less than 2 unique values. Cannot perform seasonality test.")
-        return False, None
-
-    res = []
-    for i in unique_seasonal_frequency:
-        group_data = differenced_dataset[differenced_dataset[SF] == i]['value']
-        if not group_data.empty:
-            res.append(group_data)
-        else:
-            print(f"Seasonal frequency {i} has no data.")
-
-    if len(res) < 2:
-        print(f"{SF.capitalize()} has less than 2 non-empty groups. Cannot perform seasonality test!!!!.")
-        return False, None
-    try:
-        H_statistic, p_value = kruskal(*res)
-        p_value = round(p_value, 3)
-        seasonal = p_value <= 0.05
-
-        print(f"{SF.capitalize()} H_statistic is {H_statistic}")
-        print(f"{SF.capitalize()} p_value is {p_value}")
-        print(f"Seasonality that is built on {SF} is {seasonal}")
-
-        return seasonal, p_value
-    except ValueError as e:
-        print(f"Error in seasonality test for {SF}: {str(e)}")
-        return False, None
-
-def create_exogenous_features(original_dataset, optimally_differenced_dataset, dataset_start_time, dataset_end_time, include_fractional_hour = False, exogenous_feature_type='NoExogenousFeatures', sampling_frequency='h'):
-    if exogenous_feature_type == 'NoExogenousFeatures':
-        return [], pd.DataFrame(), pd.DataFrame(), False, False, False
-
-    # Initialize new dataset
-    new_dataset = pd.DataFrame(index=original_dataset.index)
-    # print(new_dataset)
-    dataset_start_time = dataset_start_time.strftime('%Y-%m-%d %H:%M:%S')
-    dataset_end_time = dataset_end_time.strftime('%Y-%m-%d %H:%M:%S')
-
-    # start_date_time_object = datetime.datetime.strptime(dataset_start_time, '%Y-%m-%d %H:%M:%S')
-    # end_date_time_object = datetime.datetime.strptime(dataset_end_time, '%Y-%m-%d %H:%M:%S')
-
-    start_date_time_object = datetime.strptime(dataset_start_time, '%Y-%m-%d %H:%M:%S')
-    end_date_time_object = datetime.strptime(dataset_end_time, '%Y-%m-%d %H:%M:%S')
-
-    dataset_delta = end_date_time_object - start_date_time_object
-    # print(dataset_delta)
-
-    dataset_offset = to_offset('{td.days}D{td.seconds}s'.format(td=dataset_delta))
-
-    SeasonalFrequency = []
-
-    sampling_frequency_offset = to_offset(sampling_frequency)
-    # print(sampling_frequency)
-    # print(sampling_frequency_offset)
-    hour_test = to_offset('1h')
-    day_of_week_test = to_offset('1d')
-    week_test = to_offset('7d')
-    month_test = to_offset('31d')
-    year_test = to_offset('366d')
-
-
-    if sampling_frequency_offset <= hour_test and dataset_offset >= to_offset('3d') :
-        SeasonalFrequency.append('hour')
-        # temp
-        # print(" features include hour")
-        # if sampling_frequency_offset < hour_test:
-        #     print(" sampling frequencyt offset is less than hour test")
-        # if exogenous_feature_type != 'AdditiveandMultiplicativeExogenousFeatures':
-        #     print(" case for AdditiveandMultiplicativeExogenousFeatures")
-        # if include_fractional_hour == True:
-        #     print(" include_fractional_hour set as True")
-        # if (exogenous_feature_type != 'AdditiveandMultiplicativeExogenousFeatures' or include_fractional_hour == True):
-        #     print(" right part true")
-        #temp
-        if sampling_frequency_offset < hour_test and ((exogenous_feature_type in ['ExogenousFeaturesBasedonSeasonalityTest', 'ExogenousFeaturesBasedonSeasonalityTestWithAdditivenMultiplicative']) or include_fractional_hour == True):
-            # print(" inside fractional hour")
-            SeasonalFrequency.append('fractional_hour')
-
-    if sampling_frequency_offset <= day_of_week_test and dataset_offset >= to_offset('21d') :
-        SeasonalFrequency.append('day_of_week')
-
-    if sampling_frequency_offset <= week_test and dataset_offset >= to_offset('1095d') :
-        SeasonalFrequency.append('week')
-
-    if sampling_frequency_offset <= month_test and dataset_offset >= to_offset('1095d') :
-        SeasonalFrequency.append('month')
-
-    if sampling_frequency_offset <= year_test and dataset_offset >= to_offset('1095d') : # in the future we can add in holidays and yearly_quarters
-        SeasonalFrequency.append('year')
-
-    # print("Finished creating list of SF")
-    # print("Here is the issue")
-    # print(SeasonalFrequency)
-    # Create all calendar features
-    for SF in SeasonalFrequency:
-        if SF == 'hour' :
-            new_dataset[SF] = new_dataset.index.hour + 1 # we should consider for odd sampling freq may decide for the value to be a fraction ( need different formula )
-        elif SF == 'fractional_hour':
-            # print("entered")
-            new_dataset[SF] = new_dataset.index.map(fractional_hour_generator) # set the right parameter
-        elif SF == 'day_of_week':
-            new_dataset[SF] = new_dataset.index.dayofweek + 1
-        elif SF == 'week':
-            new_dataset[SF] = new_dataset.index.isocalendar().week
-        elif SF == 'month':
-            new_dataset[SF] = new_dataset.index.month
-        elif SF == 'year':
-            new_dataset[SF] = new_dataset.index.year
-    # print(new_dataset)
-    # print(new_dataset['hour'])
-    # print(new_dataset['fractional_hour'])
-    # print(new_dataset['fractional_hour', 'hour'])
-    # print(SeasonalFrequency)
-    # Create cyclical features
-    for feature in new_dataset.columns:
-        new_dataset[f'sin_{feature}'] = np.sin(2 * np.pi * new_dataset[feature] / new_dataset[feature].max())
-        new_dataset[f'cos_{feature}'] = np.cos(2 * np.pi * new_dataset[feature] / new_dataset[feature].max())
-    # print(new_dataset)
-    frac_hour_seasonal = None
-    hour_seasonal = None
-    day_of_week_seasonal = None
-    week_seasonal = None
-    if exogenous_feature_type in ['ExogenousFeaturesBasedonSeasonalityTest', 'ExogenousFeaturesBasedonSeasonalityTestWithAdditivenMultiplicative']:
-        # Perform seasonality tests
-        # run the seasonality test on both hour and fractional_hour to test both
-        # if none is seasonal ( seasonality test is false for both )  then both return false for seasonality
-        # if one is true then we return for that seasonality as true and the other as false
-        # if both are true for seasonality then we want to return to one as true and the other as false ( priority for smaller p_value and return its seasonality as true ) (if p_value same then return hour seasonality as true)
-        seasonal_periods = []
-        p_values = {}
-        chosen_hour_type = None  # This will store either 'hour' or 'fractional_hour'
-
-        # Special handling for hour and fractional_hour
-        # print("Here")
-        if 'hour' in SeasonalFrequency:
-            hour_seasonal, hour_p_value = test_seasonality(optimally_differenced_dataset, 'hour', sampling_frequency)
-            frac_hour_seasonal, frac_hour_p_value = test_seasonality(optimally_differenced_dataset, 'fractional_hour', sampling_frequency)
-        if 'day_of_week' in SeasonalFrequency:
-            day_of_week_seasonal, day_of_week_p_value = test_seasonality(optimally_differenced_dataset, 'day_of_week', sampling_frequency)
-        if 'week' in SeasonalFrequency:
-            week_seasonal, week_p_value = test_seasonality(optimally_differenced_dataset, 'week', sampling_frequency)
-            # calculation of week seasonality test to determine seasonal period of a year can be improved in the future by using day_of_year instead of week_of_year
-        if not hour_seasonal and not frac_hour_seasonal:
-            print("Neither hour nor fractional_hour is seasonal.")
-        elif hour_seasonal and frac_hour_seasonal:
-            if hour_p_value <= frac_hour_p_value:
-                chosen_hour_type = 'hour'
-                seasonal_periods.append('hour')
-                p_values['hour'] = hour_p_value
-                print("Both hour and fractional_hour are seasonal. Choosing hour due to lower or equal p-value.")
-            else:
-                chosen_hour_type = 'fractional_hour'
-                seasonal_periods.append('fractional_hour')
-                p_values['fractional_hour'] = frac_hour_p_value
-                print("Both hour and fractional_hour are seasonal. Choosing fractional_hour due to lower p-value.")
-        elif hour_seasonal:
-            chosen_hour_type = 'hour'
-            seasonal_periods.append('hour')
-            p_values['hour'] = hour_p_value
-            print("Only hour is seasonal.")
-        elif frac_hour_seasonal:
-            chosen_hour_type = 'fractional_hour'
-            seasonal_periods.append('fractional_hour')
-            p_values['fractional_hour'] = frac_hour_p_value
-            print("Only fractional_hour is seasonal.")
-
-        # Test other seasonal frequencies
-        for SF in [sf for sf in SeasonalFrequency if sf not in ['hour', 'fractional_hour']]:
-            is_seasonal, p_value = test_seasonality(optimally_differenced_dataset, SF, sampling_frequency)
-            if is_seasonal:
-                seasonal_periods.append(SF)
-                p_values[SF] = p_value
-
-        if not seasonal_periods:
-            print("No seasonal periods detected. Returning no exogenous calendar related features.")
-            new_dataset = pd.DataFrame(index=original_dataset.index)
-        else:
-            print("Detected seasonal periods:")
-            for period in seasonal_periods:
-                print(f"{period}: p-value = {p_values[period]}")
-
-            # Keep only features for seasonal periods, excluding the non-chosen hour type
-            seasonal_features = [col for col in new_dataset.columns if any(period in col for period in seasonal_periods) and
-                                 (chosen_hour_type not in ['hour', 'fractional_hour'] or
-                                  (chosen_hour_type == 'hour' and 'fractional_hour' not in col) or
-                                  (chosen_hour_type == 'fractional_hour' and 'hour' in col))]
-            new_dataset = new_dataset[seasonal_features]
-
-    num_columns = new_dataset.shape[1]
-    # print(f"Number of columns: {num_columns}")
-
-    if exogenous_feature_type in ['AdditiveandMultiplicativeExogenousFeatures', 'ExogenousFeaturesBasedonSeasonalityTestWithAdditivenMultiplicative'] and num_columns > 0:
-        # Apply polynomial features (multiplicative case)
-        polynomialobject2 = PolynomialFeatures(
-            degree=2,
-            interaction_only=True, # was False
-            include_bias=False
-        ).set_output(transform="pandas")
-
-        # print(new_dataset)
-        # new_dataset.dropna()
-        # print(new_dataset)
-        num_columns = new_dataset.shape[1]
-        # print(f"Number of columns: {num_columns}")
-        new_dataset = polynomialobject2.fit_transform(new_dataset.dropna())
-        # print(new_dataset)
-
-    # Get exogenous feature names
-    exog_features = new_dataset.columns.tolist()
-
-    # Create final dataframe of exogenous features
-    df_exogenous_features = new_dataset.copy()
-    # print(df_exogenous_features)
-    return exog_features, new_dataset, df_exogenous_features, hour_seasonal, day_of_week_seasonal, week_seasonal
-
-def generate_exog_data(end_date, freq, steps, date_format):
-    end_validation = pd.to_datetime(end_date, format=date_format)
-
-    # Generate date range for the exogenous series
-    date_range = pd.date_range(start=end_validation + pd.Timedelta(freq),
-                               periods=steps,
-                               freq=freq)
-
-    # Create exog_series with 0 values
-    exog_series = pd.Series(0, index=date_range)
-
-    # Create exog_timewindow
-    exog_timewindow = exog_series.reset_index()
-    exog_timewindow.columns = ['date_time', 'value']
-    exog_timewindow['date_time'] = pd.to_datetime(exog_timewindow['date_time'], format=date_format)
-    exog_timewindow = exog_timewindow.set_index('date_time')
-    exog_timewindow = exog_timewindow.asfreq(freq)
-
-    return exog_series, exog_timewindow
 
 class GeneralizedHyperparameterSearch:
     def __init__(self, forecaster, y, lags, exog=None, steps=12, metric='mean_absolute_scaled_error',
@@ -486,7 +215,7 @@ class GeneralizedHyperparameterSearch:
             if param in self.current_param_ranges:
                 del self.current_param_ranges[param]
             else:
-                print(f"Warning: Parameter '{param}' not found in the current search space.")
+                debug(f"Warning: Parameter '{param}' not found in the current search space.")
 
     def include_parameters(self, params_to_include):
         """
@@ -499,9 +228,9 @@ class GeneralizedHyperparameterSearch:
             if param in default_ranges and param not in self.current_param_ranges:
                 self.current_param_ranges[param] = default_ranges[param]
             elif param in self.current_param_ranges:
-                print(f"Warning: Parameter '{param}' is already in the current search space.")
+                debug(f"Warning: Parameter '{param}' is already in the current search space.")
             else:
-                print(f"Warning: Parameter '{param}' not found in the default search space for {self.model_type}.")
+                debug(f"Warning: Parameter '{param}' not found in the default search space for {self.model_type}.")
 
     def update_parameter_range(self, param, new_range):
         """
@@ -513,24 +242,24 @@ class GeneralizedHyperparameterSearch:
         if param in self.current_param_ranges:
             self.current_param_ranges[param] = new_range
         else:
-            print(f"Warning: Parameter '{param}' not found in the current search space.")
+            debug(f"Warning: Parameter '{param}' not found in the current search space.")
 
     def display_available_parameters(self):
         """
         Display the available parameters and their current ranges for the selected model type.
         """
-        print(f"Available parameters for {self.model_type.upper()} model:")
+        debug(f"Available parameters for {self.model_type.upper()} model:")
         self._display_params(self.current_param_ranges)
-        print("\nYou can override these parameters by passing a dictionary to the bayesian_search method.")
+        debug("\nYou can override these parameters by passing a dictionary to the bayesian_search method.")
 
     def _display_params(self, param_ranges):
         for param, config in param_ranges.items():
             param_type = config[0]
             if param_type in ['int', 'float']:
                 step = config[3] if len(config) > 3 else 'N/A'
-                print(f"  {param}: {param_type}, range: {config[1]} to {config[2]}, step: {step}")
+                debug(f"  {param}: {param_type}, range: {config[1]} to {config[2]}, step: {step}")
             elif param_type == 'categorical':
-                print(f"  {param}: {param_type}, choices: {config[1]}")
+                debug(f"  {param}: {param_type}, choices: {config[1]}")
 
 
     def _prepare_lags_grid(self, lags):
@@ -636,7 +365,7 @@ class GeneralizedHyperparameterSearch:
                 self.current_param_ranges[param] = range_value
             else:
                 self.current_param_ranges[param] = range_value
-                print(f"New parameter '{param}' added to the search space.")
+                debug(f"New parameter '{param}' added to the search space.")
 
         def create_search_space(trial, param_ranges):
             search_space = {}
@@ -775,24 +504,24 @@ def determine_differentiation(data_train_with_id, max_diff=5):
         # print(data_diff['value'].nunique())
         # Check if data is constant
         if data_diff['value'].nunique() <= 1:
-            print(f'The time series (diff order {i}) is constant or nearly constant.')
+            debug(f'The time series (diff order {i}) is constant or nearly constant.')
             break
 
         try:
             adfuller_result = adfuller(data_diff['value'])
             kpss_result = kpss(data_diff['value'])
         except ValueError as e:
-            print(f"Error during statistical test: {e}")
+            debug(f"Error during statistical test: {e}")
             break
 
-        print(f'adfuller stat and adfuller boolean is: {adfuller_result[1]}, {adfuller_result[1] < 0.05}')
-        print(f'kpss stat and kpss boolean is: {kpss_result[1]}, {kpss_result[1] > 0.05}')
+        debug(f'adfuller stat and adfuller boolean is: {adfuller_result[1]}, {adfuller_result[1] < 0.05}')
+        debug(f'kpss stat and kpss boolean is: {kpss_result[1]}, {kpss_result[1] > 0.05}')
 
         if adfuller_result[1] < 0.05 and kpss_result[1] > 0.05:
-            print(f'The time series (diff order {i}) is likely to be stationary.')
+            debug(f'The time series (diff order {i}) is likely to be stationary.')
             break
         else:
-            print(f'The time series (diff order {i}) is likely to be non-stationary.')
+            debug(f'The time series (diff order {i}) is likely to be non-stationary.')
             differentiation += 1
             if differentiation < max_diff:
                 data_diff = data_diff.diff().dropna()
@@ -802,13 +531,13 @@ def determine_differentiation(data_train_with_id, max_diff=5):
     if differentiation == 0:
         data_diff = pd.DataFrame()
 
-    print(f'The differentiation is: {differentiation}')
+    debug(f'The differentiation is: {differentiation}')
     return differentiation, data_diff
 
 # loop over 'df_exogenous_features' columns, and if column name in not in list lightgbm_selected_exog then delete that column
-def filter_dataframe_col(df, selected_col):
-    col_to_keep = [ col for col in df.columns if col in selected_col ]
-    return df[col_to_keep]
+# def filter_dataframe_col(df, selected_col):
+    # col_to_keep = [ col for col in df.columns if col in selected_col ]
+    # return df[col_to_keep]
 
 def impute_data(dataset, replace=False, imputed_value='value', method='polynomial', order=None):
     if not isinstance(dataset, pd.DataFrame):
@@ -976,7 +705,7 @@ def determine_feature_set(
                 cv=RFECV_CV,
                 min_features_to_select=RFECV_min_features_to_select,
                 subsample=FeatureSetReductionSubSample, 
-                verbose=True
+                verbose=False
             )
         elif feature_set_reduction_method=='RFE':
             selected_lags, selected_exog = perform_RFE_feature_selection(
