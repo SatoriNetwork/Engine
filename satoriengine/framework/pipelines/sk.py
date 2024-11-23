@@ -73,6 +73,8 @@ class SKPipeline(PipelineInterface):
             return predictor_model[0].forecast
         else:
             error(f'Error predicting : {predictor_model} and status {status}')
+            self.model = None
+
         return None
     
     def forecasterName(self, **kwargs) -> str:
