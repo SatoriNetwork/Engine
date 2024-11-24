@@ -1,152 +1,204 @@
-from typing import Iterable, Union
-import traceback
-import os
-import time
-import copy
-import random
 import pandas as pd
+from typing import Union, Optional, Any
 import numpy as np
-from reactivex import merge
-from reactivex.subject import BehaviorSubject
-from sklearn.exceptions import NotFittedError
+import joblib
+import os
+
+from satoriengine.framework.pipelines.interface import PipelineInterface, TrainingResult
+from satoriengine.framework.process import process_data
+from satorilib.logging import info, debug, error, warning, setup, DEBUG
+
+from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
-from xgboost import XGBRegressor, XGBClassifier
-from satorilib import logging
-from satorilib.concepts import StreamId, StreamOverview
-from satorilib.api.disk import Cached
-from satorilib.api.interfaces.model import ModelMemoryApi
-from satoriengine.concepts import HyperParameter
-from satoriengine.model.pilot import PilotModel
-from satoriengine.model.stable import StableModel
-
-from satoriengine.model.chronos_adapter import ChronosAdapter
-from satoriengine.model.ttm_adapter import TTMAdapter
-from typing import Union, Optional, Any
-from collections import namedtuple
-from satoriengine.framework.pipelines.interface import PipelineInterface, TrainingResult
-from satoriengine.utils import clean
 
 
-class XGBRegressorPipeline(PipelineInterface):
+class XgbPipeline(PipelineInterface):
 
-    def __init__(self, *args, **kwargs):
-        # unused
-        # useGPU: bool
-        # self.hyperParameters: list[HyperParameter] # unused
-        # xgbParams: list = []
-        self.model: XGBRegressor = XGBRegressor(eval_metric='mae')
-
-    def fit(self, **kwargs) -> TrainingResult:
-        ''' train model - in place '''
-        self.trainX, self.testX, self.trainY, self.testY = train_test_split(
-            data, df_target, test_size=self.split or 0.2, shuffle=False)
-        # using data to train the model
-        self.model.fit(
-            self.trainX,
-            self.trainY,
-            eval_set=[(self.trainX, self.trainY), (self.testX, self.testY)],
-            verbose=False)
-        return TrainingResult(1, self.model, True)
+    def __init__(self, **kwargs):
+        # self.model: XGBRegressor = XGBRegressor(**self.hyperparameters)
+        self.model: Union[XGBRegressor, None] = None
+        self.hyperparameters: Union[dict, None] = None
+        # self.params: Union[dict, None] = None
+        self.train_x: pd.DataFrame = None
+        self.test_x: pd.DataFrame = None
+        self.train_y: np.ndarray = None
+        self.test_y: np.ndarray = None
+        self.X_full: pd.DataFrame = None
+        self.y_full: pd.Series = None
+        self.split: float = None
 
     def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
+        try:
+            os.makedirs(os.path.dirname(modelpath), exist_ok=True)
+            joblib.dump(self.model, modelpath)
+            return True
+        except Exception as e:
+            print(f"Error saving model: {e}")
+            return False
+
+    def fit(self, **kwargs) -> TrainingResult:
+        proc_data = process_data(kwargs["data"], quick_start=False)
+        pre_train_x, pre_test_x, self.train_y, self.test_y = train_test_split(
+            proc_data.dataset.index.values,
+            proc_data.dataset['value'],
+            test_size=self.split or 0.2,
+            shuffle=False,
+        )
+        self.train_x = self._prepare_time_features(pre_train_x)
+        self.test_x = self._prepare_time_features(pre_test_x)
+        self.hyperparameters = self._prep_params()
+        self.model = XGBRegressor(**self.hyperparameters)
+        self.model.fit(
+            self.train_x,
+            self.train_y,
+            eval_set=[(self.train_x, self.train_y), (self.test_x, self.test_y)],
+            verbose=False,
+        )
+        return TrainingResult(1, self.model, False)
+
+    def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
+        """
+        Compare stable (model) and pilot models based on their backtest error.
+
+        Args:
+            stable: The current stable model
+            replace: Whether to replace stable with pilot if pilot performs better
+
+        Returns:
+            bool: True if pilot should replace stable, False otherwise
+        """
+        if isinstance(stable, self.__class__):
+            if self.score() < stable.score():
+                debug('Entered Comparison True', color='teal', print=True)
+                info(
+                    f'model improved! {self.hyperparameters} replaces {stable.hyperparameters}'
+                    f'\n  stable score: {self.score()}'
+                    f'\n  pilot  score: {stable.score()}',
+                    color='green',
+                    print=True,
+                )
+                return True
+            else:
+                info(
+                    f'\nstable score: {stable.score()}'
+                    f'\npilot  score: {self.score()}',
+                    color='yellow',
+                    print=True,
+                )
+                return False
         return True
 
-    def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
-        """true indicates the pilot model is better than the stable model"""
-        if isinstance(other, self.__class__):
-            return True
-        return self._score(self.model) < self._score(other)
+    def score(self, **kwargs) -> float:
+        """
+        will score the model.
+        """
+        return mean_absolute_error(self.test_y, self.model.predict(self.test_x))
 
-    def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
-        """prediction without training"""
-        return self.model.predict(kwargs["data"])
+    def predict(self, **kwargs) -> pd.DataFrame:
+        """
+        Make predictions using the stable model
 
-    def _produceTrainingSet(self):
-        df = self.testFeatureSet.copy()
-        df = df.iloc[0:-1, :]
-        df = df.replace([np.inf, -np.inf], np.nan)
-        df.columns = clean.columnNames(df.columns)
-        # df = df.reset_index(drop=True)
-        # df = coerceAndFill(df)
-        df = df.apply(lambda col: pd.to_numeric(col, errors='coerce'))
+        Args:
+            **kwargs: Keyword arguments including datapath and stable model
 
-        lookback_len = next(
-            (param.test for param in self.hyperParameters if param.name == 'lookback_len'), 1)
-        data = df.to_numpy(dtype=np.float64).flatten()
-        data = np.concatenate(
-            [np.zeros((lookback_len,), dtype=data.dtype), data])
-        data = [
-            data[i-lookback_len:i]
-            for i in range(lookback_len, data.shape[0])]
-        df = pd.DataFrame(data)
+        Returns:
+            Optional[pd.DataFrame]: Predictions if successful, None otherwise
+        """
+        proc_data = process_data(kwargs["data"], quick_start=False)
+        self.X_full = self._prepare_time_features(proc_data.dataset.index.values)
+        self.y_full = proc_data.dataset['value']
+        self.model.fit(
+            self.X_full,
+            self.y_full,
+            verbose=False,
+        )
+        last_date = pd.Timestamp(proc_data.dataset.index[-1])
+        future_predictions = self._predict_future(self.model, last_date, proc_data.sampling_frequency)
+        return future_predictions
 
-        df_target = self.target.iloc[0:df.shape[0], :]
-        data = df_target.to_numpy(dtype=np.float64).flatten()
-        df_target = pd.DataFrame(data)
+    def _predict_future(
+        self,
+        model: XGBRegressor,
+        last_date: pd.Timestamp,
+        sf: str = 'H', 
+        periods: int = 168,  
+    ) -> pd.DataFrame:
+        """
+        Generate predictions for future periods
 
-    def _score(self, model: XGBRegressor, testX: Iterable, testY: Iterable):
-        return mean_absolute_error(testY, model.predict(testX))
+        Args:
+            model: Trained XGBoost model
+            last_date: Last date in training data
+            sf: Sampling frequency (default 'H' for hourly)
+            periods: Number of periods to predict into future (default 168 hours / 1 week)
 
-    def _updateHyperParameters(self):
-        # assum self.model is XGBRegressor
-        # instead of explicitly holding the hyperparameters, outside the model
-        # we can just randomize the hyperparameters in the model in a similar,
-        # adjustable-learning-rate way as we used to:
-        # def radicallyRandomize():
-        #    for param in self.hyperParameters:
-        #        x = param.min + (random.random() * (param.max - param.min))
-        #        if param.kind == int:
-        #            x = int(x)
-        #        param.test = x
-        #
-        # def incrementallyRandomize():
-        #    for param in self.hyperParameters:
-        #        x = (
-        #            (random.random() * param.limit * 2) +
-        #            (param.value - param.limit))
-        #        if param.min < x < param.max:
-        #            if param.kind == int:
-        #                x = int(round(x))
-        #            param.test = x
-        #
-        # x = random.random()
-        # if x >= .9:
-        #    radicallyRandomize()
-        # elif .1 < x < .9:
-        #    incrementallyRandomize()
-        # something like
-        self.model.set_params(
-            learning_rate=min(max(self.model.learning_rate *
-                              random.uniform(0.8, 1.25), .001), 1),
-            n_estimators=min(
-                max(int(self.model.n_estimators * random.uniform(0.8, 1.25)), 10), 1000),
-            max_depth=min(max(int(self.model.max_depth * random.uniform(0.8, 1.25)), 3), 10))
-        # {
-        #    'objective': 'reg:squarederror',
-        #    'base_score': 0.5,
-        #    'booster': 'gbtree',
-        #    'colsample_bylevel': 1,
-        #    'colsample_bynode': 1,
-        #    'colsample_bytree': 1,
-        #    'gamma': 0,
-        #    'importance_type': 'gain',
-        #    'learning_rate': 0.01,      # Updated value, if modified
-        #    'max_delta_step': 0,
-        #    'max_depth': 5,             # Updated value, if modified
-        #    'min_child_weight': 1,
-        #    'missing': None,
-        #    'n_estimators': 200,        # Updated value, if modified
-        #    'n_jobs': 1,
-        #    'nthread': None,
-        #    'random_state': 0,
-        #    'reg_alpha': 0,
-        #    'reg_lambda': 1,
-        #    'scale_pos_weight': 1,
-        #    'seed': None,
-        #    'silent': None,
-        #    'subsample': 1,
-        #    'verbosity': 1,
-        #    'eval_metric': 'mae'        # Specified during instantiation
-        # }
+        Returns:
+            pd.DataFrame: DataFrame containing future dates and predictions
+        """
+        future_dates = pd.date_range(
+            start=pd.Timestamp(last_date) + pd.Timedelta(sf), periods=periods, freq=sf
+        )
+        future_features = self._prepare_time_features(future_dates)
+        predictions = model.predict(future_features)
+        results = pd.DataFrame(
+            {'date_time': future_dates, 'pred': predictions}
+        )
+        return results
+
+    @staticmethod
+    def _prepare_time_features(dates: np.ndarray) -> pd.DataFrame:
+        """Convert datetime series into numeric features for XGBoost"""
+        df = pd.DataFrame({'date_time': pd.to_datetime(dates)})
+        df['hour'] = df['date_time'].dt.hour
+        df['day'] = df['date_time'].dt.day
+        df['month'] = df['date_time'].dt.month
+        df['year'] = df['date_time'].dt.year
+        df['day_of_week'] = df['date_time'].dt.dayofweek
+        return df.drop('date_time', axis=1)
+
+    @staticmethod
+    def _prep_params() -> dict:
+        """
+        Generates randomized hyperparameters for XGBoost within reasonable ranges.
+        Returns a dictionary of hyperparameters.
+        """
+        param_ranges = {
+            'n_estimators': (100, 1000),
+            'max_depth': (3, 10),
+            'learning_rate': (0.01, 0.3),
+            'subsample': (0.6, 1.0),
+            'colsample_bytree': (0.6, 1.0),
+            'min_child_weight': (1, 7),
+            'gamma': (0, 0.5),
+        }
+
+        params = {
+            'random_state': np.random.randint(0, 10000),
+            'eval_metric': 'mae',
+            'learning_rate': np.random.uniform(
+                param_ranges['learning_rate'][0], param_ranges['learning_rate'][1]
+            ),
+            'subsample': np.random.uniform(
+                param_ranges['subsample'][0], param_ranges['subsample'][1]
+            ),
+            'colsample_bytree': np.random.uniform(
+                param_ranges['colsample_bytree'][0], param_ranges['colsample_bytree'][1]
+            ),
+            'gamma': np.random.uniform(
+                param_ranges['gamma'][0], param_ranges['gamma'][1]
+            ),
+            'n_estimators': np.random.randint(
+                param_ranges['n_estimators'][0], param_ranges['n_estimators'][1]
+            ),
+            'max_depth': np.random.randint(
+                param_ranges['max_depth'][0], param_ranges['max_depth'][1]
+            ),
+            'min_child_weight': np.random.randint(
+                param_ranges['min_child_weight'][0], param_ranges['min_child_weight'][1]
+            ),
+        }
+
+        return params
+
