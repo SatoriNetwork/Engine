@@ -14,7 +14,7 @@ from satorilib.concepts import Stream, StreamId, Observation
 from satorilib.api.disk.filetypes.csv import CSVManager
 from satorilib.logging import debug, info, error, setup, DEBUG, INFO
 from satoriengine.framework.Data import StreamForecast
-from satoriengine.framework.pipelines import PipelineInterface, SKPipeline, StarterPipeline
+from satoriengine.framework.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline
 
 setup(level=INFO)
 
@@ -107,7 +107,7 @@ class StreamModel:
         """
         updated_model = updated_model or self.stable
         if updated_model is not None:
-            forecast = updated_model.predict(stable=self.stable, data=self.data)
+            forecast = updated_model.predict(data=self.data)
 
             if isinstance(forecast, pd.DataFrame):
                 observationTime = datetimeToTimestamp(now())
@@ -185,8 +185,10 @@ class StreamModel:
         """
         if self.check_observations():
             if inplace and not isinstance(self.pilot, SKPipeline):
-                self.pilot = SKPipeline()
-            return SKPipeline
+                # self.pilot = SKPipeline()
+            # return SKPipeline
+                self.pilot = XgbPipeline() 
+            return XgbPipeline
         else:
             if inplace and not isinstance(self.pilot, StarterPipeline):
                 self.pilot = StarterPipeline()
