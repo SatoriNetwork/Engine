@@ -16,10 +16,8 @@ from sklearn.model_selection import train_test_split
 class XgbPipeline(PipelineInterface):
 
     def __init__(self, **kwargs):
-        # self.model: XGBRegressor = XGBRegressor(**self.hyperparameters)
         self.model: Union[XGBRegressor, None] = None
         self.hyperparameters: Union[dict, None] = None
-        # self.params: Union[dict, None] = None
         self.train_x: pd.DataFrame = None
         self.test_x: pd.DataFrame = None
         self.train_y: np.ndarray = None
@@ -39,6 +37,7 @@ class XgbPipeline(PipelineInterface):
             return False
 
     def fit(self, **kwargs) -> TrainingResult:
+        """Train a new model"""
         proc_data = process_data(kwargs["data"], quick_start=False)
         pre_train_x, pre_test_x, self.train_y, self.test_y = train_test_split(
             proc_data.dataset.index.values,
@@ -61,21 +60,15 @@ class XgbPipeline(PipelineInterface):
     def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """
         Compare stable (model) and pilot models based on their backtest error.
-
-        Args:
-            stable: The current stable model
-            replace: Whether to replace stable with pilot if pilot performs better
-
-        Returns:
-            bool: True if pilot should replace stable, False otherwise
         """
         if isinstance(stable, self.__class__):
             if self.score() < stable.score():
                 debug('Entered Comparison True', color='teal', print=True)
                 info(
-                    f'model improved! {self.hyperparameters} replaces {stable.hyperparameters}'
+                    f'model improved!'
                     f'\n  stable score: {self.score()}'
                     f'\n  pilot  score: {stable.score()}',
+                    f'\n  Parameters: {self.hyperparameters}',
                     color='green',
                     print=True,
                 )
@@ -91,21 +84,11 @@ class XgbPipeline(PipelineInterface):
         return True
 
     def score(self, **kwargs) -> float:
-        """
-        will score the model.
-        """
+        """will score the model"""
         return mean_absolute_error(self.test_y, self.model.predict(self.test_x))
 
     def predict(self, **kwargs) -> pd.DataFrame:
-        """
-        Make predictions using the stable model
-
-        Args:
-            **kwargs: Keyword arguments including datapath and stable model
-
-        Returns:
-            Optional[pd.DataFrame]: Predictions if successful, None otherwise
-        """
+        """Make predictions using the stable model"""
         proc_data = process_data(kwargs["data"], quick_start=False)
         self.X_full = self._prepare_time_features(proc_data.dataset.index.values)
         self.y_full = proc_data.dataset['value']
@@ -115,36 +98,25 @@ class XgbPipeline(PipelineInterface):
             verbose=False,
         )
         last_date = pd.Timestamp(proc_data.dataset.index[-1])
-        future_predictions = self._predict_future(self.model, last_date, proc_data.sampling_frequency)
+        future_predictions = self._predict_future(
+            self.model, last_date, proc_data.sampling_frequency
+        )
         return future_predictions
 
     def _predict_future(
         self,
         model: XGBRegressor,
         last_date: pd.Timestamp,
-        sf: str = 'H', 
-        periods: int = 168,  
+        sf: str = 'H',
+        periods: int = 168,
     ) -> pd.DataFrame:
-        """
-        Generate predictions for future periods
-
-        Args:
-            model: Trained XGBoost model
-            last_date: Last date in training data
-            sf: Sampling frequency (default 'H' for hourly)
-            periods: Number of periods to predict into future (default 168 hours / 1 week)
-
-        Returns:
-            pd.DataFrame: DataFrame containing future dates and predictions
-        """
+        """Generate predictions for future periods"""
         future_dates = pd.date_range(
             start=pd.Timestamp(last_date) + pd.Timedelta(sf), periods=periods, freq=sf
         )
         future_features = self._prepare_time_features(future_dates)
         predictions = model.predict(future_features)
-        results = pd.DataFrame(
-            {'date_time': future_dates, 'pred': predictions}
-        )
+        results = pd.DataFrame({'date_time': future_dates, 'pred': predictions})
         return results
 
     @staticmethod
@@ -201,4 +173,3 @@ class XgbPipeline(PipelineInterface):
         }
 
         return params
-

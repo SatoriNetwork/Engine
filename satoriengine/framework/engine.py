@@ -102,7 +102,7 @@ class StreamModel:
     def produce_prediction(self, updated_model=None):
         """
         triggered by
-            - model model replaced with a better one
+            - model replaced with a better one
             - new observation on the stream
         """
         updated_model = updated_model or self.stable
