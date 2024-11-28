@@ -109,7 +109,7 @@ class StreamModel:
         """
         updated_model = updated_model or self.stable
         if updated_model is not None:
-            forecast = updated_model.predict(stable=self.stable, data=self.data)
+            forecast = updated_model.predict(data=self.data)
 
             if isinstance(forecast, pd.DataFrame):
                 observationTime = datetimeToTimestamp(now())
@@ -190,7 +190,7 @@ class StreamModel:
         return f"/Satori/Neuron/data/{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv"
 
     def model_path(self) -> str:
-        return f"/Satori/Neuron/models/{generatePathId(streamId=self.streamId)}"
+        return f"/Satori/Neuron/models/frameworkengine/{generatePathId(streamId=self.streamId)}"
 
     def check_observations(self) -> bool:
         """
