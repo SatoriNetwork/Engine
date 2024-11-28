@@ -5,6 +5,7 @@ import copy
 import json
 import threading
 import pandas as pd
+import os
 from reactivex.subject import BehaviorSubject
 from satorilib.api.hash import hashIt
 from satorilib.api.disk import getHashBefore
@@ -54,7 +55,7 @@ class Engine:
             streamModel.run_forever()
             
         if streamModel is not None and len(streamModel.data) > 1:
-            debug("Making Prediction for New Observation", print=True)
+            debug('Making Prediction for New Observation', color='teal')
             streamModel.produce_prediction() 
         else:
             info(f"No model found for stream {observation.streamId}")
@@ -81,6 +82,7 @@ class StreamModel:
         self.pipeline: PipelineInterface = self.choose_pipeline()
         self.pilot: PipelineInterface = self.pipeline.load(self.model_path())
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
+
 
     def handle_new_observation(self, observation: Observation):
         """extract the data and save it to self.data"""
@@ -129,7 +131,31 @@ class StreamModel:
                 )
                 self.prediction_produced.on_next(streamforecast)
             else:
-                error("Forecast failed : ", forecast)
+                error("Forecast failed, retrying with Quick Model")
+                debug("Model Path to be deleted : ", self.model_path(), color="teal")
+                if os.path.isfile(self.model_path()):
+                    try:
+                        os.remove(self.model_path())
+                        debug("Deleted failed model file", color="teal")
+                    except Exception as e:
+                        error(f"Failed to delete model file: {str(e)}")
+
+                self.stable = None
+                pipeline_class = self.choose_pipeline()
+                rollback_model = pipeline_class()
+
+                try:
+                    training_result = rollback_model.fit(data=self.data)
+                    if training_result.status == 1:
+                        debug(f"New model trained: {training_result.model[0].model_name}", color="teal")
+                        self.stable = copy.deepcopy(rollback_model)
+                        self.produce_prediction(self.stable)
+                    else:
+                        error(f"Failed to train alternative model (status: {training_result.status})")
+                except Exception as e:
+                    error(f"Error training new model: {str(e)}")
+
+
 
     def save_prediction(
         self,
@@ -164,7 +190,7 @@ class StreamModel:
         return f"/Satori/Neuron/data/{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv"
 
     def model_path(self) -> str:
-        return f"/Satori/Neuron/models/{generatePathId(streamId=self.streamId)}"
+        return f"/Satori/Neuron/models/frameworkengine/{generatePathId(streamId=self.streamId)}"
 
     def check_observations(self) -> bool:
         """
@@ -202,6 +228,7 @@ class StreamModel:
         Breaks if backtest error stagnates for 3 iterations.
         """
         while True:
+            debug(self.pilot, color='teal')
             trainingResult = self.pilot.fit(data=self.data)
             if trainingResult.status == 1 and not trainingResult.stagnated:
                 if self.pilot.compare(self.stable):
@@ -214,7 +241,7 @@ class StreamModel:
                     debug("Starter Pipeline", print=True)
                 else:
                     error("Model Training Failed, Breaking out of the Loop")
-                break
+                break 
 
     def run_forever(self):
         self.thread = threading.Thread(target=self.run, args=(), daemon=True)
