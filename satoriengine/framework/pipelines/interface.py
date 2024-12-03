@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Union, Optional, Any
 import joblib
 import os
-from satorilib.logging import error
+from satorilib.logging import error, debug
 
 
 class TrainingResult:
@@ -18,16 +18,16 @@ class PipelineInterface:
     def __init__(self, *args, **kwargs):
         self.model = None
 
-    @staticmethod
-    def load(modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
-        """loads the model model from disk if present"""
-        try:
-            return joblib.load(modelPath)
-        except Exception as e:
-            error(f"Deleting Model file : {e}", print=True)
-            if os.path.isfile(modelPath):
-                os.remove(modelPath)
-            return None
+    def load(self, modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
+        """
+        loads the model model from disk if present
+
+        Args:
+            modelpath: Path where the model should be loaded from
+
+        Returns:
+        PipelineInterface: Model if load successful, None otherwise
+        """
 
     def save(self, modelpath: str, **kwargs) -> bool:
         """

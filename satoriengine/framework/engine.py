@@ -5,6 +5,8 @@ import copy
 import json
 import threading
 import pandas as pd
+
+import pickle
 import os
 from reactivex.subject import BehaviorSubject
 from satorilib.api.hash import hashIt
@@ -190,15 +192,15 @@ class StreamModel:
         return f"/Satori/Neuron/data/{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv"
 
     def model_path(self) -> str:
-        return f"/Satori/Neuron/models/frameworkengine/{generatePathId(streamId=self.streamId)}"
-
-    def check_observations(self) -> bool:
-        """
-        Check if the dataframe has fewer than 3 observations.
-        Returns:
-            bool: True if dataframe has more than 2 rows, False otherwise
-        """
-        return len(self.data) > 2
+        debug(
+            '/Satori/Neuron/models/veda/'
+            f'{generatePathId(streamId=self.streamId)}/'
+            f'{self.pipeline.__name__}.joblib',
+            color="teal")
+        return (
+            '/Satori/Neuron/models/veda/'
+            f'{generatePathId(streamId=self.streamId)}/'
+            f'{self.pipeline.__name__}.joblib')
 
     def choose_pipeline(self, inplace: bool = False) -> PipelineInterface:
         """
@@ -219,6 +221,25 @@ class StreamModel:
             if inplace and not isinstance(self.pilot, StarterPipeline):
                 self.pilot = StarterPipeline()
             return StarterPipeline
+        # if getProcessorCount() < 4:
+        #     if inplace and not isinstance(self.pilot, XgbPipeline):
+        #         self.pilot = XgbPipeline()
+        #     return XgbPipeline
+        # if 3 <= len(self.data) < 40:
+        #     if inplace and not isinstance(self.pilot, XgbPipeline):
+        #         self.pilot = XgbPipeline()
+        #     return XgbPipeline
+        # at least 4 processors and
+        # at least 40 observations
+        # still debugging
+        # else:
+        #     if inplace and not isinstance(self.pilot, SKPipeline):
+        #         self.pilot = SKPipeline()
+        #     return SKPipeline
+            # if inplace and not isinstance(self.pilot, XgbPipeline):
+            #     self.pilot = XgbPipeline()
+            # return XgbPipeline
+
 
     def run(self):
         """
@@ -227,8 +248,14 @@ class StreamModel:
         using the best known model to make predictions on demand.
         Breaks if backtest error stagnates for 3 iterations.
         """
-        while True:
-            debug(self.pilot, color='teal')
+        # still have a "problem?" where the model makes predictions right away
+        # wasn't sure SKPipeline was working so just using XgbPipeline for now
+        while len(self.data) > 0:
+            # debug(" pilot = ",type(self.pilot), color="red")
+            # debug(" stable = ",type(self.stable), color="red")
+            # debug(self.stable[0].backtest_error, color="red")
+            # debug(self.streamId, color="red")
+            debug(self.stable, color="red")
             trainingResult = self.pilot.fit(data=self.data)
             if trainingResult.status == 1 and not trainingResult.stagnated:
                 if self.pilot.compare(self.stable):

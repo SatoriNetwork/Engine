@@ -25,16 +25,35 @@ class XgbPipeline(PipelineInterface):
         self.X_full: pd.DataFrame = None
         self.y_full: pd.Series = None
         self.split: float = None
+        self.model_error: float = np.inf
 
     def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         try:
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
-            joblib.dump(self.model, modelpath)
+            # Create a state dictionary with all necessary data
+            state = {
+                'xgb_model': self.model,
+                'model_error': self.model_error
+            }
+            joblib.dump(state, modelpath)
             return True
         except Exception as e:
             print(f"Error saving model: {e}")
             return False
+
+
+    def load(self, modelpath: str, **kwargs) -> Union[None, XGBRegressor]:
+        """loads the stable model from disk"""
+        try:
+            if os.path.exists(modelpath):
+                state = joblib.load(modelpath)
+                self.model = state['xgb_model']
+                self.model_error = state['model_error']
+            return self.model
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return None
 
     def fit(self, **kwargs) -> TrainingResult:
         """Train a new model"""
@@ -85,7 +104,11 @@ class XgbPipeline(PipelineInterface):
 
     def score(self, **kwargs) -> float:
         """will score the model"""
-        return mean_absolute_error(self.test_y, self.model.predict(self.test_x))
+        if self.model is None:
+            return np.inf
+        self.model_error = mean_absolute_error(self.test_y, self.model.predict(self.test_x))
+        return self.model_error
+    
 
     def predict(self, **kwargs) -> pd.DataFrame:
         """Make predictions using the stable model"""

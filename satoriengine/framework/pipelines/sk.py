@@ -1,6 +1,7 @@
 import joblib
 import os
 
+import numpy as np
 import pandas as pd
 from datetime import datetime
 import random
@@ -20,6 +21,17 @@ class SKPipeline(PipelineInterface):
     def __init__(self, **kwargs):
         self.model = None
 
+    @staticmethod
+    def load(modelPath: str, **kwargs) -> Union[None, List]:
+        """loads the model model from disk if present"""
+        try:
+            return joblib.load(modelPath)
+        except Exception as e:
+            error(f"Deleting Model file : {e}", print=True)
+            if os.path.isfile(modelPath):
+                os.remove(modelPath)
+            return None
+
     def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         try:
@@ -31,14 +43,17 @@ class SKPipeline(PipelineInterface):
             return False
 
     def fit(self, **kwargs) -> TrainingResult:
+        debug("model error = ", self.score(), color="white")
         if self.model is None:
             status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["quick_start"])
-            if status == 1:
-                self.model = model
-                debug("Model Picked for Training : ", self.model[0].model_name, print=True)
-                return TrainingResult(status, self.model, False)
-        status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["random_model"])
-        self.model = model
+        else:    
+            status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["random_model"])
+
+        if status == 1:
+            self.model = model
+            debug("Model Picked for Training : ", self.model[0].model_name, print=True)
+        else:
+            self.model = None
         return TrainingResult(status, self.model, False)
 
     def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
@@ -58,7 +73,9 @@ class SKPipeline(PipelineInterface):
         return True
 
     def score(self, **kwargs) -> float:
-        return self.model[0].backtest_error
+        if self.model == None:
+            return np.inf
+        return self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
 
     def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""
@@ -118,6 +135,7 @@ class SKPipeline(PipelineInterface):
 
         # Process data first to get allowed_models
         proc_data = process_data(data, quick_start=quick_start_present)
+        debug("dataset length = ", len(proc_data.dataset), color="yellow")
 
         if random_model_present and not quick_start_present:
             current_time = datetime.now()
