@@ -15,21 +15,22 @@ from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingRes
 
 setup(level=DEBUG)
 
-setup(level=DEBUG)
-
 
 class SKPipeline(PipelineInterface):
 
     def __init__(self, **kwargs):
-        self.model = None
+        self.model: Union[List, None] = None
+        self.model_error: float = None
 
-    @staticmethod
-    def load(modelPath: str, **kwargs) -> Union[None, List]:
+    def load(self, modelPath: str, **kwargs) -> Union[None, List]:
         """loads the model model from disk if present"""
         try:
-            return joblib.load(modelPath)
+            saved_state = joblib.load(modelPath)
+            self.model = saved_state['stable_model']
+            self.model_error = saved_state['model_error']
+            return self.model
         except Exception as e:
-            error(f"Deleting Model file : {e}", print=True)
+            debug(f"Error Loading Model File : {e}", print=True)
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
             return None
@@ -38,10 +39,15 @@ class SKPipeline(PipelineInterface):
         """saves the stable model to disk"""
         try:
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
-            joblib.dump(self.model, modelpath)
+            self.model_error = self.score()
+            state = {
+                'stable_model' : self.model,
+                'model_error' : self.model_error
+            }
+            joblib.dump(state, modelpath)
             return True
         except Exception as e:
-            error(f"Error saving model: {e}")
+            print(f"Error saving model: {e}")
             return False
 
     def fit(self, **kwargs) -> TrainingResult:
@@ -60,26 +66,50 @@ class SKPipeline(PipelineInterface):
 
     def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """true indicates this model is better than the other model"""
-        if isinstance(stable, self.__class__):
-            if self.score() < stable.score():
-                info(
-                    f'model improved! {self.forecasterName()} replaces {stable.forecasterName()}'
-                    f'\n  stable score: {stable.score()}'
-                    f'\n  pilot  score: {self.score()}',
-                    color='green')
-                return True
-            else:
-                debug(
-                    f'\nstable score: {stable.score()}'
-                    f'\npilot  score: {self.score()}', color='yellow')
-                return False
-            # return self.score() < other.score()
-        return True
+        # if isinstance(stable, self.__class__):
+        #     if self.score() < stable.score():
+        #         info(
+        #             f'model improved! {self.forecasterName()} replaces {stable.forecasterName()}'
+        #             f'\n  stable score: {stable.score()}'
+        #             f'\n  pilot  score: {self.score()}',
+        #             color='green')
+        #         return True
+        #     else:
+        #         debug(
+        #             f'\nstable score: {stable.score()}'
+        #             f'\npilot  score: {self.score()}', color='yellow')
+        #         return False
+        #     # return self.score() < other.score()
+        # return True
+        if not isinstance(stable, self.__class__):
+            return True
+            
+        pilot_score = self.score()
+        stable_score = stable.model_error or stable.score()
+        is_improved = pilot_score < stable_score
+        
+        if is_improved:
+            info(
+                'model improved!'
+                f'\n  stable score: {stable_score}'
+                f'\n  pilot  score: {pilot_score}'
+                f'\n  Parameters: {self.hyperparameters}',
+                color='green'
+            )
+        else:
+            debug(
+                f'\nstable score: {stable_score}'
+                f'\npilot  score: {pilot_score}',
+                color='yellow'
+            )
+        
+        return is_improved
 
     def score(self, **kwargs) -> float:
         if self.model == None:
             return np.inf
-        return self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
+        self.model_error = self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
+        return self.model_error
 
     def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""

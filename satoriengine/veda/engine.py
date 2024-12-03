@@ -81,7 +81,8 @@ class StreamModel:
         self.prediction_produced = prediction_produced
         self.data: pd.DataFrame = self.load_data()
         self.pipeline: PipelineInterface = self.choose_pipeline()
-        self.pilot: PipelineInterface = self.pipeline.load(self.model_path())
+        self.pilot: PipelineInterface = self.pipeline()  # Create instance first
+        self.pilot.load(self.model_path())  # Then load model on the instance
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
 
 
@@ -218,12 +219,12 @@ class StreamModel:
         # at least 4 processors and
         # at least 40 observations
         # still debugging
-        if inplace and not isinstance(self.pilot, SKPipeline):
-            self.pilot = SKPipeline()
-        return SKPipeline
-        # if inplace and not isinstance(self.pilot, XgbPipeline):
-        #     self.pilot = XgbPipeline()
-        # return XgbPipeline
+        # if inplace and not isinstance(self.pilot, SKPipeline):
+        #     self.pilot = SKPipeline()
+        # return SKPipeline
+        if inplace and not isinstance(self.pilot, XgbPipeline):
+            self.pilot = XgbPipeline()
+        return XgbPipeline
 
 
     def run(self):
