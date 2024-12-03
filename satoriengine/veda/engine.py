@@ -5,6 +5,8 @@ import copy
 import json
 import threading
 import pandas as pd
+
+import pickle
 import os
 from reactivex.subject import BehaviorSubject
 from satorilib.utils.hash import hashIt, generatePathId
@@ -182,6 +184,11 @@ class StreamModel:
             f'{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv')
 
     def model_path(self) -> str:
+        debug(
+            '/Satori/Neuron/models/veda/'
+            f'{generatePathId(streamId=self.streamId)}/'
+            f'{self.pipeline.__name__}.joblib',
+            color="teal")
         return (
             '/Satori/Neuron/models/veda/'
             f'{generatePathId(streamId=self.streamId)}/'
