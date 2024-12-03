@@ -25,16 +25,36 @@ class XgbPipeline(PipelineInterface):
         self.X_full: pd.DataFrame = None
         self.y_full: pd.Series = None
         self.split: float = None
+        self.model_error: float = None
+
+    def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
+        """loads the model model from disk if present"""
+        try:
+            saved_state = joblib.load(modelPath)
+            self.model = saved_state['stable_model']
+            self.model_error = saved_state['model_error']
+            return self.model
+        except Exception as e:
+            debug(f"Error Loading Model File : {e}", print=True)
+            if os.path.isfile(modelPath):
+                os.remove(modelPath)
+            return None
 
     def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         try:
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
-            joblib.dump(self.model, modelpath)
+            self.model_error = self.score()
+            state = {
+                'stable_model' : self.model,
+                'model_error' : self.model_error
+            }
+            joblib.dump(state, modelpath)
             return True
         except Exception as e:
             print(f"Error saving model: {e}")
             return False
+        
 
     def fit(self, **kwargs) -> TrainingResult:
         """Train a new model"""
@@ -57,31 +77,76 @@ class XgbPipeline(PipelineInterface):
         )
         return TrainingResult(1, self.model, False)
 
+    # def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
+    #     """
+    #     Compare stable (model) and pilot models based on their backtest error.
+    #     """
+    #     if isinstance(stable, self.__class__):
+    #         if stable.model_error is not None:
+    #             if self.score() < stable.model_error:
+    #                 info(
+    #                     f'model improved!'
+    #                     f'\n  stable score: {stable.model_error}'
+    #                     f'\n  pilot  score: {self.score()}',
+    #                     f'\n  Parameters: {self.hyperparameters}',
+    #                     color='green')
+    #                 return True
+    #             else:
+    #                 debug(
+    #                     f'\nstable score: {stable.model_error}'
+    #                     f'\npilot  score: {self.score()}', color='yellow')
+    #                 return False
+    #         else:
+    #             if self.score() < stable.score():
+    #                 info(
+    #                     f'model improved!'
+    #                     f'\n  stable score: {stable.score()}'
+    #                     f'\n  pilot  score: {self.score()}',
+    #                     f'\n  Parameters: {self.hyperparameters}',
+    #                     color='green')
+    #                 return True
+    #             else:
+    #                 debug(
+    #                     f'\nstable score: {stable.score()}'
+    #                     f'\npilot  score: {self.score()}', color='yellow')
+    #                 return False
+    #     return True
+
     def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """
         Compare stable (model) and pilot models based on their backtest error.
+        Returns True if pilot model performs better than stable model.
         """
-        if isinstance(stable, self.__class__):
-            if self.score() < stable.score():
-                info(
-                    f'model improved!'
-                    f'\n  stable score: {stable.score()}'
-                    f'\n  pilot  score: {self.score()}',
-                    f'\n  Parameters: {self.hyperparameters}',
-                    color='green')
-                return True
-            else:
-                debug(
-                    f'\nstable score: {stable.score()}'
-                    f'\npilot  score: {self.score()}', color='yellow')
-                return False
-        return True
+        if not isinstance(stable, self.__class__):
+            return True
+            
+        pilot_score = self.score()
+        stable_score = stable.model_error or stable.score()
+        is_improved = pilot_score < stable_score
+        
+        if is_improved:
+            info(
+                'model improved!'
+                f'\n  stable score: {stable_score}'
+                f'\n  pilot  score: {pilot_score}'
+                f'\n  Parameters: {self.hyperparameters}',
+                color='green'
+            )
+        else:
+            debug(
+                f'\nstable score: {stable_score}'
+                f'\npilot  score: {pilot_score}',
+                color='yellow'
+            )
+        
+        return is_improved
 
     def score(self, **kwargs) -> float:
         """will score the model"""
         if self.model is None:
             return np.inf
-        return mean_absolute_error(self.test_y, self.model.predict(self.test_x))
+        self.model_error = mean_absolute_error(self.test_y, self.model.predict(self.test_x))
+        return self.model_error
 
     def predict(self, **kwargs) -> pd.DataFrame:
         """Make predictions using the stable model"""
