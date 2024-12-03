@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Union, Optional, Any
 from collections import namedtuple
-from satoriengine.framework.pipelines.interface import PipelineInterface, TrainingResult
+from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
 
 
 class StarterPipeline(PipelineInterface):

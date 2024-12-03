@@ -7,15 +7,17 @@ import threading
 import pandas as pd
 import os
 from reactivex.subject import BehaviorSubject
-from satorilib.api.hash import hashIt
-from satorilib.api.disk import getHashBefore
-from satorilib.api.hash import generatePathId
-from satorilib.api.time import datetimeToTimestamp, now
+from satorilib.utils.hash import hashIt, generatePathId
+from satorilib.utils.time import datetimeToTimestamp, now
+from satorilib.utils.system import getProcessorCount
+from satorilib.disk import getHashBefore
 from satorilib.concepts import Stream, StreamId, Observation
-from satorilib.api.disk.filetypes.csv import CSVManager
+from satorilib.disk.filetypes.csv import CSVManager
 from satorilib.logging import debug, info, error, setup, DEBUG, INFO
-from satoriengine.framework.Data import StreamForecast
-from satoriengine.framework.pipelines import PipelineInterface, SKPipeline, StarterPipeline
+from satoriengine.veda.Data import StreamForecast
+from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline
+
+setup(level=INFO)
 
 setup(level=INFO)
 
@@ -34,29 +36,26 @@ class Engine:
         self.new_observation.subscribe(
             on_next=lambda x: self.handle_new_observation(x) if x is not None else None,
             on_error=lambda e: self.handle_error(e),
-            on_completed=lambda: self.handle_completion(),
-        )
+            on_completed=lambda: self.handle_completion())
 
     def initialize_models(self):
         for stream, pubStream in zip(self.streams, self.pubstreams):
             self.streamModels[stream.streamId] = StreamModel(
                 streamId=stream.streamId,
                 predictionStreamId=pubStream.streamId,
-                prediction_produced=self.prediction_produced,
-            )
+                prediction_produced=self.prediction_produced)
+            self.streamModels[stream.streamId].choose_pipeline(inplace=True)
+            self.streamModels[stream.streamId].run_forever()
 
     def handle_new_observation(self, observation: Observation):
         streamModel = self.streamModels.get(observation.streamId)
         streamModel.handle_new_observation(observation)
         if streamModel.thread is None or not streamModel.thread.is_alive():
-            streamModel.choose_pipeline(
-                inplace=True
-            ) 
+            streamModel.choose_pipeline(inplace=True)
             streamModel.run_forever()
-            
         if streamModel is not None and len(streamModel.data) > 1:
-            debug('Making Prediction for New Observation', color='teal')
-            streamModel.produce_prediction() 
+            debug(f'Making prediction based on new observation using {streamModel.pipeline.__name__}', color='teal')
+            streamModel.produce_prediction()
         else:
             info(f"No model found for stream {observation.streamId}")
 
@@ -64,7 +63,7 @@ class Engine:
         print(f"An error occurred new_observaiton: {error}")
 
     def handle_completion(self):
-        print(f"new_observation completed")
+        print("new_observation completed")
 
 
 class StreamModel:
@@ -90,35 +89,29 @@ class StreamModel:
         self.data = pd.concat(
             [
                 self.data,
-                pd.DataFrame(
-                    {
-                        "date_time": [str(parsed_data["time"])],
-                        "value": [float(parsed_data["data"])],
-                        "id": [str(parsed_data["hash"])],
-                    }
-                ),
+                pd.DataFrame({
+                    "date_time": [str(parsed_data["time"])],
+                    "value": [float(parsed_data["data"])],
+                    "id": [str(parsed_data["hash"])]}),
             ],
-            ignore_index=True,
-        )
+            ignore_index=True)
 
     def produce_prediction(self, updated_model=None):
         """
         triggered by
-            - model model replaced with a better one
+            - model replaced with a better one
             - new observation on the stream
         """
         updated_model = updated_model or self.stable
         if updated_model is not None:
             forecast = updated_model.predict(data=self.data)
-
             if isinstance(forecast, pd.DataFrame):
                 observationTime = datetimeToTimestamp(now())
                 prediction = StreamForecast.firstPredictionOf(forecast)
                 observationHash = hashIt(
                     getHashBefore(pd.DataFrame(), observationTime)
                     + str(observationTime)
-                    + str(prediction)
-                )
+                    + str(prediction))
                 self.save_prediction(observationTime, prediction, observationHash)
                 streamforecast = StreamForecast(
                     streamId=self.streamId,
@@ -127,8 +120,7 @@ class StreamModel:
                     forecast=forecast, # maybe we can fetch this value from predictionHistory
                     observationTime=observationTime,
                     observationHash=observationHash,
-                    predictionHistory=CSVManager().read(self.prediction_data_path()),
-                )
+                    predictionHistory=CSVManager().read(self.prediction_data_path()))
                 self.prediction_produced.on_next(streamforecast)
             else:
                 error("Forecast failed, retrying with Quick Model")
@@ -139,11 +131,9 @@ class StreamModel:
                         debug("Deleted failed model file", color="teal")
                     except Exception as e:
                         error(f"Failed to delete model file: {str(e)}")
-
                 self.stable = None
                 pipeline_class = self.choose_pipeline()
                 rollback_model = pipeline_class()
-
                 try:
                     training_result = rollback_model.fit(data=self.data)
                     if training_result.status == 1:
@@ -155,8 +145,6 @@ class StreamModel:
                 except Exception as e:
                     error(f"Error training new model: {str(e)}")
 
-
-
     def save_prediction(
         self,
         observationTime: str,
@@ -166,39 +154,38 @@ class StreamModel:
         # alternative - use data manager: self.predictionUpdate.on_next(self)
         df = pd.DataFrame(
             {"value": [prediction], "hash": [observationHash]},
-            index=[observationTime],
-        )
+            index=[observationTime])
         df.to_csv(
-            self.prediction_data_path(), float_format="%.10f", mode="a", header=False
-        )
+            self.prediction_data_path(),
+            float_format="%.10f",
+            mode="a",
+            header=False)
         return df
 
     def load_data(self) -> pd.DataFrame:
         try:
             return pd.read_csv(
-                self.data_path(), names=["date_time", "value", "id"], header=None
-            )
+                self.data_path(),
+                names=["date_time", "value", "id"],
+                header=None)
         except FileNotFoundError:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
     def data_path(self) -> str:
-        # debug(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv", print=True)
-        return f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv"
+        return (
+            '/Satori/Neuron/data/'
+            f'{generatePathId(streamId=self.streamId)}/aggregate.csv')
 
     def prediction_data_path(self) -> str:
-        # debug(f"/Satori/Neuron/data/{generatePathId(streamId=self.streamId)}/aggregate.csv", print=True)
-        return f"/Satori/Neuron/data/{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv"
+        return (
+            '/Satori/Neuron/data/'
+            f'{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv')
 
     def model_path(self) -> str:
-        return f"/Satori/Neuron/models/frameworkengine/{generatePathId(streamId=self.streamId)}"
-
-    def check_observations(self) -> bool:
-        """
-        Check if the dataframe has fewer than 3 observations.
-        Returns:
-            bool: True if dataframe has more than 2 rows, False otherwise
-        """
-        return len(self.data) > 2
+        return (
+            '/Satori/Neuron/models/veda/'
+            f'{generatePathId(streamId=self.streamId)}/'
+            f'{self.pipeline.__name__}.joblib')
 
     def choose_pipeline(self, inplace: bool = False) -> PipelineInterface:
         """
@@ -209,14 +196,28 @@ class StreamModel:
             - (mapping of cases to suitable pipelines)
         examples: StartPipeline, SKPipeline, XGBoostPipeline, ChronosPipeline, DNNPipeline
         """
-        if self.check_observations():
-            if inplace and not isinstance(self.pilot, SKPipeline):
-                self.pilot = SKPipeline()
-            return SKPipeline
-        else:
+        if self.data is None or len(self.data) < 3:
             if inplace and not isinstance(self.pilot, StarterPipeline):
                 self.pilot = StarterPipeline()
             return StarterPipeline
+        if getProcessorCount() < 4:
+            if inplace and not isinstance(self.pilot, XgbPipeline):
+                self.pilot = XgbPipeline()
+            return XgbPipeline
+        if 3 <= len(self.data) < 40:
+            if inplace and not isinstance(self.pilot, XgbPipeline):
+                self.pilot = XgbPipeline()
+            return XgbPipeline
+        # at least 4 processors and
+        # at least 40 observations
+        # still debugging
+        if inplace and not isinstance(self.pilot, SKPipeline):
+            self.pilot = SKPipeline()
+        return SKPipeline
+        # if inplace and not isinstance(self.pilot, XgbPipeline):
+        #     self.pilot = XgbPipeline()
+        # return XgbPipeline
+
 
     def run(self):
         """
@@ -225,14 +226,15 @@ class StreamModel:
         using the best known model to make predictions on demand.
         Breaks if backtest error stagnates for 3 iterations.
         """
-        while True:
-            debug(self.pilot, color='teal')
+        # still have a "problem?" where the model makes predictions right away
+        # wasn't sure SKPipeline was working so just using XgbPipeline for now
+        while len(self.data) > 0:
             trainingResult = self.pilot.fit(data=self.data)
             if trainingResult.status == 1 and not trainingResult.stagnated:
                 if self.pilot.compare(self.stable):
                     if self.pilot.save(self.model_path()):
                         self.stable = copy.deepcopy(self.pilot)
-                        info("Stable Model Updated for stream : ", self.streamId, print=True)
+                        info("Stable Model Updated for stream:", self.streamId, print=True)
                         self.produce_prediction(self.stable)
             else:
                 if not trainingResult.stagnated:

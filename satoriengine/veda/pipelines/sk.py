@@ -7,10 +7,12 @@ import random
 from typing import Union, Optional, List, Any
 from satorilib.logging import info, debug, error, warning, setup, DEBUG
 
-from satoriengine.framework.process import process_data
-from satoriengine.framework.determine_features import determine_feature_set
-from satoriengine.framework.model_creation import model_create_train_test_and_predict
-from satoriengine.framework.pipelines.interface import PipelineInterface, TrainingResult
+from satoriengine.veda.process import process_data
+from satoriengine.veda.determine_features import determine_feature_set
+from satoriengine.veda.model_creation import model_create_train_test_and_predict
+from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
+
+setup(level=DEBUG)
 
 setup(level=DEBUG)
 
@@ -41,24 +43,28 @@ class SKPipeline(PipelineInterface):
         self.model = model
         return TrainingResult(status, self.model, False)
 
-    def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
+    def compare(self, stable: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """true indicates this model is better than the other model"""
-        if isinstance(other, self.__class__):
-            if self.score() < other.score():
-                debug('Entered Comparison True', print=True)
+        if isinstance(stable, self.__class__):
+            if self.score() < stable.score():
                 info(
-                f'model improved! {self.forecasterName()} replaces {other.forecasterName()}'
-                f'\n  stable score: {self.score()}'
-                f'\n  pilot  score: {other.score()}',
-                color='green', print=True)
+                    f'model improved! {self.forecasterName()} replaces {stable.forecasterName()}'
+                    f'\n  stable score: {stable.score()}'
+                    f'\n  pilot  score: {self.score()}',
+                    color='green')
                 return True
             else:
+                debug(
+                    f'\nstable score: {stable.score()}'
+                    f'\npilot  score: {self.score()}', color='yellow')
                 return False
             # return self.score() < other.score()
         return True
 
     def score(self, **kwargs) -> float:
-        return self.model[0].backtest_error
+        if self.model == None:
+            return float('inf')
+        return self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
 
     def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""
@@ -67,8 +73,7 @@ class SKPipeline(PipelineInterface):
             data=kwargs["data"],
             list_of_models=[self.model[0].model_name],
             mode="predict",
-            unfitted_forecaster=self.model[0].unfitted_forecaster,
-        )
+            unfitted_forecaster=self.model[0].unfitted_forecaster)
         if status == 1:
             return predictor_model[0].forecast
         else:
@@ -76,9 +81,9 @@ class SKPipeline(PipelineInterface):
             self.model = None
 
         return None
-    
+
     def forecasterName(self, **kwargs) -> str:
-        return self.model[0].model_name.upper()
+        return self.model[0].model_name.upper() if self.model != None else "First Model"
 
     @staticmethod
     def skEnginePipeline(

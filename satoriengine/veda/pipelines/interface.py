@@ -18,16 +18,19 @@ class PipelineInterface:
     def __init__(self, *args, **kwargs):
         self.model = None
 
-    @staticmethod
-    def load(modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
+    @classmethod
+    def load(cls: "PipelineInterface", modelPath: str, **kwargs) -> Union["PipelineInterface"]:
         """loads the model model from disk if present"""
+
+        if not os.path.isfile(modelPath):
+            return cls(**kwargs)
         try:
             return joblib.load(modelPath)
         except Exception as e:
             error(f"Deleting Model file : {e}", print=True)
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
-            return None
+            return cls(**kwargs)
 
     def save(self, modelpath: str, **kwargs) -> bool:
         """

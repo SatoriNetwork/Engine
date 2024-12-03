@@ -2,7 +2,7 @@ import threading
 import joblib
 from reactivex.subject import BehaviorSubject
 import pandas as pd
-# from satorilib.api.hash import generatePathId
+# from satorilib.utils.hash import generatePathId
 # from satorilib.concepts import Stream, StreamId
 
 # testing purposes
@@ -21,7 +21,7 @@ from model_creation import model_create_train_test_and_predict
 class Engine:
     # behaviour subject to send the prediction back to the neuron
     def __init__(self, streams: list[str]):
-        self.streams = streams 
+        self.streams = streams
         self.models: Dict[str, Model] = {}
         self.threads: Dict[str, threading.Thread] = {}
         self.model_updated_subjects: Dict[str, BehaviorSubject] = {}
@@ -132,7 +132,7 @@ class Model:
         ''' prediction without training '''
         # print(self.stable[0].unfitted_forecaster)
         print("Here")
-        status, predictor_model = engine( filename=self.datapath, 
+        status, predictor_model = engine( filename=self.datapath,
                                list_of_models=[self.stable[0].model_name],
                                mode='predict',
                                unfitted_forecaster=self.stable[0].unfitted_forecaster
@@ -160,7 +160,7 @@ class Model:
                 print(f"The Stable model is : {self.stable[0].model_name}")
                 if self.stable[0].model_name != "starter_dataset_model":
                     self.save()
-                
+
         i = 0
         while True:
             status, pilot = engine(self.datapath, ['random_model'])
@@ -168,7 +168,7 @@ class Model:
                 print("*************** Error ******************")
                 print(pilot)
                 print("*************** Error ******************")
-                
+
             if status == 1:
                 # if status 1 only then below
                 if self.compare(pilot, replace=True):
@@ -417,6 +417,3 @@ def engine(
 # csv_files = ["NATGAS1D.csv", "modifiedkaggletraffic2.csv"]
 csv_files = ["aggregatee.csv"]
 engine = Engine(csv_files)
-
-
-

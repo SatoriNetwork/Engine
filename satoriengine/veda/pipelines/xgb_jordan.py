@@ -14,8 +14,8 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor, XGBClassifier
 from satorilib import logging
 from satorilib.concepts import StreamId, StreamOverview
-from satorilib.api.disk import Cached
-from satorilib.api.interfaces.model import ModelMemoryApi
+from satorilib.disk import Cached
+from satorilib.interfaces.model import ModelMemoryApi
 from satoriengine.concepts import HyperParameter
 from satoriengine.model.pilot import PilotModel
 from satoriengine.model.stable import StableModel
@@ -24,7 +24,7 @@ from satoriengine.model.chronos_adapter import ChronosAdapter
 from satoriengine.model.ttm_adapter import TTMAdapter
 from typing import Union, Optional, Any
 from collections import namedtuple
-from satoriengine.framework.pipelines.interface import PipelineInterface, TrainingResult
+from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
 from satoriengine.utils import clean
 
 

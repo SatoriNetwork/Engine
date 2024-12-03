@@ -40,10 +40,10 @@ import datetime as dt
 import pandas as pd
 from reactivex.subject import BehaviorSubject
 from satorilib.concepts import Observation, StreamId
-from satorilib.api import hash
-from satorilib.api import system
-from satorilib.api.disk import Cached, Disk
-from satorilib.api.disk.cache import CachedResult
+from satorilib.utils import hash
+from satorilib.utils import system
+from satorilib.disk import Cached, Disk
+from satorilib.disk.cache import CachedResult
 from satorilib import logging
 
 # from satoriengine.managers.model import ModelManager

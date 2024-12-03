@@ -12,8 +12,8 @@ from sklearn.metrics import mean_absolute_error
 from xgboost import XGBRegressor, XGBClassifier
 from satorilib import logging
 from satorilib.concepts import StreamId, StreamOverview
-from satorilib.api.disk import Cached
-from satorilib.api.interfaces.model import ModelMemoryApi
+from satorilib.disk import Cached
+from satorilib.interfaces.model import ModelMemoryApi
 from satoriengine.concepts import HyperParameter
 from satoriengine.model.pilot import PilotModel
 from satoriengine.model.stable import StableModel
