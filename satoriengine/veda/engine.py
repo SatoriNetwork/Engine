@@ -84,6 +84,7 @@ class StreamModel:
         self.pilot: PipelineInterface = self.pipeline()  # Create instance first
         self.pilot.load(self.model_path())  # Then load model on the instance
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
+        print(self.pipeline.__name__)
 
 
     def handle_new_observation(self, observation: Observation):
@@ -204,6 +205,10 @@ class StreamModel:
             - (mapping of cases to suitable pipelines)
         examples: StartPipeline, SKPipeline, XGBoostPipeline, ChronosPipeline, DNNPipeline
         """
+        #if not hasattr(self, 'stable') or self.stable is None or self.stable.model is not None:
+        #    if inplace and not isinstance(self.pilot, StarterPipeline):
+        #        self.pilot = StarterPipeline()
+        #    return StarterPipeline
         if self.data is None or len(self.data) < 3:
             if inplace and not isinstance(self.pilot, StarterPipeline):
                 self.pilot = StarterPipeline()
@@ -212,7 +217,7 @@ class StreamModel:
             if inplace and not isinstance(self.pilot, XgbPipeline):
                 self.pilot = XgbPipeline()
             return XgbPipeline
-        if 3 <= len(self.data) < 40:
+        if 3 <= len(self.data) < 40 or len(self.data) > 1000:
             if inplace and not isinstance(self.pilot, XgbPipeline):
                 self.pilot = XgbPipeline()
             return XgbPipeline
