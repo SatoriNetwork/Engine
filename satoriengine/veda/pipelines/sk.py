@@ -93,7 +93,7 @@ class SKPipeline(PipelineInterface):
                 'model improved!'
                 f'\n  stable score: {stable_score}'
                 f'\n  pilot  score: {pilot_score}'
-                f'\n  Parameters: {self.hyperparameters}',
+                f'\n  New Model: {self.forecasterName()}',
                 color='green'
             )
         else:

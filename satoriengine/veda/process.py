@@ -737,7 +737,7 @@ def process_data(
         # debug("Hits the >= 25 length dataset case and >= 19 days")
         # quick_start : linear_regression with no_exog, feature_set_reduction = False
         if quick_start:
-            allowed_models = ["direct_linearregression"]
+            allowed_models = ["autoreg_lightgbm"]
 
         use_weight = True
         time_metric_baseline = "days"
@@ -766,7 +766,7 @@ def process_data(
                 "skt_ets",
             ]
             if quick_start:
-                allowed_models = ["direct_linearregression"]
+                allowed_models = ["autoreg_lightgbm"]
             time_metric_baseline = "days"
             forecasterequivalentdate = 1
             forecasterequivalentdate_n_offsets = min(dataset_duration.days - 1, 1)
@@ -779,7 +779,7 @@ def process_data(
                 "autoreg_lightgbm",
             ]
             if quick_start:
-                allowed_models = ["direct_linearregression"]
+                allowed_models = ["autoreg_lightgbm"]
             # debug("Hits the >= 12 length dataset case and >= 12 hours")
 
             if sampling_timedelta > pd.Timedelta(hours=1):
@@ -794,12 +794,12 @@ def process_data(
             forecasterequivalentdate = 1
 
         elif len(dataset) >= 3:
-            allowed_models = ["direct_linearregression"]
+            allowed_models = ["direct_linearregression", "autoreg_lightgbm"]
             if dataset_duration >= pd.Timedelta(hours=2):
                 allowed_models.append("baseline")
 
             if quick_start:
-                allowed_models = ["direct_linearregression"]
+                allowed_models = ["autoreg_lightgbm"]
             lags = 1
             forecasting_steps = 1
             if sampling_timedelta > pd.Timedelta(hours=1):
@@ -818,7 +818,7 @@ def process_data(
         allowed_models = [
             model
             for model in allowed_models
-            if model not in ["direct_xgb", "direct_catboost", "direct_histgradient", "arima",
+            if model not in ["direct_linearregression", "direct_xgb", "direct_catboost", "direct_histgradient", "arima",
                              "skt_lstm_deeplearning", "skt_tbats_damped", "skt_tbats_standard", "autoreg_histgradient",
                               "autoreg_xgb", "autoreg_catboost", "skt_ets", "skt_tbats_quick" ]
         ]

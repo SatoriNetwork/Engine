@@ -126,6 +126,8 @@ def skEnginePipeline(
             if is_suitable
         ]
 
+        print(1)
+
         try:
             features = None
             for model_name in list_of_models:
@@ -172,7 +174,7 @@ def skEnginePipeline(
                         hyper_flag=True,
                     )
             
-            print(1)
+            print(2)
             list_of_results = []
             for model_name in list_of_models:
                 result = model_create_train_test_and_predict(

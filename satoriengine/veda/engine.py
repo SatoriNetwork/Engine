@@ -105,9 +105,12 @@ class StreamModel:
             - model replaced with a better one
             - new observation on the stream
         """
+        debug('1 predict', print=True)
         updated_model = updated_model or self.stable
         if updated_model is not None:
+            debug('2 predict', print=True)
             forecast = updated_model.predict(data=self.data)
+            debug('3 predict', print=True)
             if isinstance(forecast, pd.DataFrame):
                 observationTime = datetimeToTimestamp(now())
                 prediction = StreamForecast.firstPredictionOf(forecast)
@@ -208,23 +211,23 @@ class StreamModel:
             if inplace and not isinstance(self.pilot, StarterPipeline):
                 self.pilot = StarterPipeline()
             return StarterPipeline
-        if getProcessorCount() < 4:
-            if inplace and not isinstance(self.pilot, XgbPipeline):
-                self.pilot = XgbPipeline()
-            return XgbPipeline
-        if 3 <= len(self.data) < 40:
-            if inplace and not isinstance(self.pilot, XgbPipeline):
-                self.pilot = XgbPipeline()
-            return XgbPipeline
+        # if getProcessorCount() < 4:
+        #     if inplace and not isinstance(self.pilot, XgbPipeline):
+        #         self.pilot = XgbPipeline()
+        #     return XgbPipeline
+        # if 3 <= len(self.data) < 40:
+        #     if inplace and not isinstance(self.pilot, XgbPipeline):
+        #         self.pilot = XgbPipeline()
+        #     return XgbPipeline
         # at least 4 processors and
         # at least 40 observations
         # still debugging
-        # if inplace and not isinstance(self.pilot, SKPipeline):
-        #     self.pilot = SKPipeline()
-        # return SKPipeline
-        if inplace and not isinstance(self.pilot, XgbPipeline):
-            self.pilot = XgbPipeline()
-        return XgbPipeline
+        if inplace and not isinstance(self.pilot, SKPipeline):
+            self.pilot = SKPipeline()
+        return SKPipeline
+        # if inplace and not isinstance(self.pilot, XgbPipeline):
+        #     self.pilot = XgbPipeline()
+        # return XgbPipeline
 
 
     def run(self):
