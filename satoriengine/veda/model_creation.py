@@ -281,17 +281,22 @@ def predict_interval_custom(
         # Case for ARIMA model
         if alpha is None:
             alpha = 0.05  # Default value if not provided
-        return forecaster.predict_interval(steps=steps, alpha=alpha)
+        # return forecaster.predict_interval(steps=steps, alpha=alpha)
+        return forecaster.predict(steps=steps)
     elif exog is not None:
         # Case with exogenous features for other models
-        return forecaster.predict_interval(
-            exog=exog, steps=steps, interval=interval, n_boot=n_boot
+        # return forecaster.predict_interval(
+        #     exog=exog, steps=steps, interval=interval, n_boot=n_boot
+        # )
+        return forecaster.predict(
+            exog=exog, steps=steps
         )
     else:
         # Case without exogenous features for other models
-        return forecaster.predict_interval(
-            steps=steps, interval=interval, n_boot=n_boot
-        )
+        # return forecaster.predict_interval(
+        #     steps=steps, interval=interval, n_boot=n_boot
+        # )
+        return forecaster.predict(steps=steps)
 
 
 def calculate_theoretical_coverage(interval):
@@ -571,9 +576,13 @@ def model_create_train_test_and_predict(
 
         if mode == "all" or mode == "predict":
             arima_forecaster.fit(y=dataset_selected_features[value], suppress_warnings=True)
+            # forecast = predict_interval_custom(
+            #     forecaster=arima_forecaster, steps=forecasting_steps, alpha=0.05
+            # )
             forecast = predict_interval_custom(
-                forecaster=arima_forecaster, steps=forecasting_steps, alpha=0.05
+                forecaster=arima_forecaster, steps=forecasting_steps
             )
+            forecast = forecast.to_frame(name="pred")
 
         return ForecastModelResult(
             model_name=model_name,
@@ -968,13 +977,20 @@ def model_create_train_test_and_predict(
                 exog = forecast_calendar_features[selected_exog]
 
             # Make the forecast
+            # forecast = predict_interval_custom(
+            #     forecaster=final_forecaster,
+            #     exog=exog,
+            #     steps=forecasting_steps,
+            #     interval=interval,
+            #     n_boot=20,
+            # )
             forecast = predict_interval_custom(
                 forecaster=final_forecaster,
                 exog=exog,
-                steps=forecasting_steps,
-                interval=interval,
-                n_boot=20,
+                steps=forecasting_steps
             )
+
+            forecast = forecast.to_frame(name="pred")
 
         return ForecastModelResult(
             model_name=model_name,
