@@ -1,5 +1,8 @@
+def warn(*args, **kwargs):
+    pass
+
 import warnings
-warnings.filterwarnings('ignore')
+warnings.warn = warn
 from typing import Dict
 import os
 import time

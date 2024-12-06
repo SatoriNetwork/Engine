@@ -131,7 +131,7 @@ def create_forecaster(model_type, if_exog=None, random_state=None, verbose=None,
 class GeneralizedHyperparameterSearch:
     def __init__(self, forecaster, y, lags, exog=None, steps=12, metric='mean_absolute_scaled_error',
                  initial_train_size=None, fixed_train_size=False, refit=False,
-                 return_best=True, n_jobs='auto', verbose=False, show_progress=True):
+                 return_best=True, n_jobs='auto', verbose=False, show_progress=False):
         self.forecaster = forecaster
         self.y = y
         self.exog = exog
