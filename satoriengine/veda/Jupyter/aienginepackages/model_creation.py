@@ -61,6 +61,10 @@ from determine_features import GeneralizedHyperparameterSearch
 from logging import debug
 
 
+from determine_features import GeneralizedHyperparameterSearch
+from logging import debug
+
+
 class ForecastModelResult:
     def __init__(
         self,
@@ -511,7 +515,7 @@ def model_create_train_test_and_predict(
     elif model_name.lower() == "arima":
         sampling_timedelta = pd.Timedelta(sampling_freq)
         day_timedelta = pd.Timedelta(days=1)
-        
+
         seasonal = False
         if hour_seasonality:
             m = forecasting_steps
@@ -712,7 +716,7 @@ def model_create_train_test_and_predict(
                 else:
                     use_damped_trend = False
 
-            
+
             if hour_seasonality == True:
                 splist.append(forecasting_steps)
 
@@ -773,7 +777,7 @@ def model_create_train_test_and_predict(
             else:
                 forecaster.fit(y_train)
                 y_pred_backtest = forecaster.predict(list(range(1, backtest_steps + 1)))
-                
+
                 y_pred_backtest_interval = forecaster.predict_interval(
                     fh=list(range(1, backtest_steps + 1)), coverage=[(upper - lower) / 100]
                 )
@@ -918,7 +922,6 @@ def model_create_train_test_and_predict(
 
             unfitted_forecaster = copy.deepcopy(final_forecaster)
 
-            
 
             if len(selected_exog) == 0:
                 final_forecaster.fit(
@@ -983,7 +986,6 @@ def model_create_train_test_and_predict(
             )
 
             print(5)
-            
         return ForecastModelResult(
             model_name=model_name,
             sampling_freq=sampling_freq,

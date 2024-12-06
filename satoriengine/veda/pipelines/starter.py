@@ -6,36 +6,38 @@ from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingRes
 
 class StarterPipeline(PipelineInterface):
 
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.model = None
 
     @staticmethod
-    def load(modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
+    def load(modelPath: str, *args, **kwargs) -> Union[None, "PipelineInterface"]:
         """loads the model model from disk if present"""
 
-    def save(self, modelpath: str, **kwargs) -> bool:
+    def save(self, modelpath: str, *args, **kwargs) -> bool:
         """saves the stable model to disk"""
         return True
 
-    def fit(self, **kwargs) -> TrainingResult:
+    def fit(self, *args, **kwargs) -> TrainingResult:
         if self.model is None:
-            status, model = StarterPipeline.starterEnginePipeline(kwargs["data"])
+            status, model = StarterPipeline.starterEnginePipeline(
+                kwargs["data"])
             if status == 1:
                 self.model = model
-                return TrainingResult(status, model, False)
+                return TrainingResult(status, self, False)
         else:
-            return TrainingResult(1, self.model, True)
+            return TrainingResult(1, self, True)
 
-    def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
+    def compare(self, other: Union[PipelineInterface, None] = None, *args, **kwargs) -> bool:
         """true indicates this model is better than the other model"""
         return True
 
-    def score(self, **kwargs) -> float:
+    def score(self, *args, **kwargs) -> float:
         pass
 
-    def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
+    def predict(self, *args, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""
-        status, predictor_model = StarterPipeline.starterEnginePipeline(kwargs["data"])
+        status, predictor_model = StarterPipeline.starterEnginePipeline(
+            kwargs["data"])
         if status == 1:
             return predictor_model[0].forecast
         return None
@@ -54,13 +56,15 @@ class StarterPipeline(PipelineInterface):
             # If dataset has only 1 row, return the same value in the forecast dataframe
             value = starter_dataset.iloc[0, 1]
             forecast = pd.DataFrame(
-                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)], "pred": [value]}
+                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
+                 "pred": [value]}
             )
         elif len(starter_dataset) == 2:
             # If dataset has 2 rows, return their average
             value = starter_dataset.iloc[:, 1].mean()
             forecast = pd.DataFrame(
-                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)], "pred": [value]}
+                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
+                 "pred": [value]}
             )
         starter_result = result(
             forecast=forecast,

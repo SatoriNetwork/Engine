@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Union, Optional, Any
 import joblib
 import os
-from satorilib.logging import error, debug
+from satorilib.logging import error, debug, info
 
 
 class TrainingResult:
@@ -18,7 +18,7 @@ class PipelineInterface:
     def __init__(self, *args, **kwargs):
         self.model = None
 
-    def load(self, modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
+    def load(self, modelPath: str, *args, **kwargs) -> Union[None, "PipelineInterface"]:
         """
         loads the model model from disk if present
 
@@ -28,8 +28,9 @@ class PipelineInterface:
         Returns:
         PipelineInterface: Model if load successful, None otherwise
         """
+        pass
 
-    def save(self, modelpath: str, **kwargs) -> bool:
+    def save(self, modelpath: str, *args, **kwargs) -> bool:
         """
         Save the model to disk.
 
@@ -42,7 +43,7 @@ class PipelineInterface:
         """
         pass
 
-    def fit(self, **kwargs) -> TrainingResult:
+    def fit(self, *args, **kwargs) -> TrainingResult:
         """
         Train a new model.
 
@@ -54,26 +55,40 @@ class PipelineInterface:
         """
         pass
 
-    def compare(self, stable: Optional[Any] = None, **kwargs) -> bool:
+    def compare(self, other: Optional[Any] = None, *args, **kwargs) -> bool:
         """
-        Compare stable (model) and pilot models based on their backtest error.
-
+        Compare other (model) and pilot models based on their backtest error.
         Args:
-            stable: The current stable model
-            replace: Whether to replace stable with pilot if pilot performs better
-
+            other: The model to compare against, typically the "stable" model
         Returns:
-            bool: True if pilot should replace stable, False otherwise
+            bool: True if pilot should replace other, False otherwise
+            this should return a comparison object which has a bool expression
         """
-        pass
+        if not isinstance(other, self.__class__):
+            return True
+        this_score = self.score()
+        other_score = other.score()
+        is_improved = this_score < other_score
+        if is_improved:
+            info(
+                'model improved!'
+                f'\n  stable score: {other_score}'
+                f'\n  pilot  score: {this_score}',
+                color='green')
+        else:
+            debug(
+                f'\nstable score: {other_score}'
+                f'\npilot  score: {this_score}',
+                color='yellow')
+        return is_improved
 
-    def score(self, **kwargs) -> float:
+    def score(self, *args, **kwargs) -> float:
         """
         will score the model.
         """
         pass
 
-    def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
+    def predict(self, *args, **kwargs) -> Union[None, pd.DataFrame]:
         """
         Make predictions using the stable model
 

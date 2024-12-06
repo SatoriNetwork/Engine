@@ -474,6 +474,9 @@ def process_data(
     # test_percentage: int = 10,
     quick_start: bool = False,
 ) -> ProcessedData:
+    '''
+    returns sampling frequency, the data with null, values among other things
+    '''
 
     # if col_names is None:
     #     col_names = ["date_time", "value", "id"]

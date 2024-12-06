@@ -1,6 +1,5 @@
 import warnings
 warnings.filterwarnings('ignore')
-
 from typing import Union
 from datetime import datetime, timedelta
 from pandas.tseries.frequencies import to_offset
@@ -765,7 +764,7 @@ def process_data(
                 "autoreg_catboost",
                 "arima",
                 "skt_ets",
-            ] 
+            ]
             if quick_start:
                 allowed_models = ["autoreg_lightgbm"]
             time_metric_baseline = "days"
@@ -778,7 +777,7 @@ def process_data(
                 "baseline",
                 "direct_linearregression",
                 "autoreg_lightgbm",
-            ]  
+            ]
             if quick_start:
                 allowed_models = ["autoreg_lightgbm"]
             # debug("Hits the >= 12 length dataset case and >= 12 hours")
@@ -798,7 +797,7 @@ def process_data(
             allowed_models = ["autoreg_lightgbm", "direct_linearregression"]
             if dataset_duration >= pd.Timedelta(hours=2):
                 allowed_models.append("baseline")
-                
+
             if quick_start:
                 allowed_models = ["autoreg_lightgbm"]
             lags = 1
@@ -819,7 +818,7 @@ def process_data(
         allowed_models = [
             model
             for model in allowed_models
-            if model not in ["direct_linearregression", "direct_xgb", "direct_catboost", "direct_histgradient", "arima", 
+            if model not in ["direct_linearregression", "direct_xgb", "direct_catboost", "direct_histgradient", "arima",
                              "skt_lstm_deeplearning", "skt_tbats_damped", "skt_tbats_standard", "autoreg_histgradient",
                               "autoreg_xgb", "autoreg_catboost", "skt_ets", "skt_tbats_quick" ]
         ]

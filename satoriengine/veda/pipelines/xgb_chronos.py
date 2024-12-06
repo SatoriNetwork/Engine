@@ -1,3 +1,8 @@
+'''
+run chronos on the data
+produce a feature of predictions
+feed data and chronos predictions into xgboost
+'''
 from typing import Union
 import os
 import joblib
@@ -9,12 +14,16 @@ from sklearn.model_selection import train_test_split
 from satorilib.logging import info, debug, warning
 from satoriengine.veda.process import process_data
 from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
+from satoriengine.veda.pipelines.chronos_adapter import ChronosVedaPipeline
 
 
-class XgbPipeline(PipelineInterface):
+class XgbChronosPipeline(PipelineInterface):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, uid: str = None, *args, **kwargs):
+        self.uid = uid
         self.model: XGBRegressor = None
+        self.chronos: Union[ChronosVedaPipeline, None] = ChronosVedaPipeline()
+        self.dataset: pd.DataFrame = None
         self.hyperparameters: Union[dict, None] = None
         self.train_x: pd.DataFrame = None
         self.test_x: pd.DataFrame = None
@@ -32,6 +41,7 @@ class XgbPipeline(PipelineInterface):
             saved_state = joblib.load(modelPath)
             self.model = saved_state['stable_model']
             self.model_error = saved_state['model_error']
+            self.dataset = saved_state['dataset']
             return self.model
         except Exception as e:
             debug(f"Error Loading Model File : {e}", print=True)
@@ -45,14 +55,14 @@ class XgbPipeline(PipelineInterface):
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
             self.model_error = self.score()
             state = {
-                'stable_model' : self.model,
-                'model_error' : self.model_error}
+                'stable_model': self.model,
+                'model_error': self.model_error,
+                'dataset': self.dataset}
             joblib.dump(state, modelpath)
             return True
         except Exception as e:
             warning(f"Error saving model: {e}")
             return False
-        
 
     def compare(self, other: Union[PipelineInterface, None] = None, *args, **kwargs) -> bool:
         """
@@ -88,9 +98,6 @@ class XgbPipeline(PipelineInterface):
     def fit(self, data: pd.DataFrame, *args, **kwargs) -> TrainingResult:
         """ Train a new model """
         _, _ = self._manage_data(data)
-        # todo: get ready to combine features from different sources (merge)
-        # todo: keep a running dataset and update incrementally w/ process_data
-        # todo: linear, if not fractal, interpolation
         pre_train_x, pre_test_x, self.train_y, self.test_y = train_test_split(
             self.dataset.index.values,
             self.dataset['value'],
@@ -115,7 +122,7 @@ class XgbPipeline(PipelineInterface):
 
     def predict(self, data: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
         """Make predictions using the stable model"""
-        _, sampling_frequency = self._manage_data(data)
+        _, sampling_frequency = self._manage_data(data, chronos_on_last=True)
         self.X_full = self._prepare_time_features(self.dataset.index.values)
         self.y_full = self.dataset['value']
         self.model.fit(
@@ -146,7 +153,7 @@ class XgbPipeline(PipelineInterface):
         results = pd.DataFrame({'date_time': future_dates, 'pred': predictions})
         return results
 
-    def _manage_data(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    def _manage_data(self, data: pd.DataFrame, chronos_on_last:bool=False) -> tuple[pd.DataFrame, str]:
         '''
         here we need to merge the chronos predictions with the data, but it
         must be done incrementally because it takes too long to do it on the
@@ -177,10 +184,38 @@ class XgbPipeline(PipelineInterface):
                 df[f'percent{past}'] = calculate_percentage_change(df, past)
             return df
 
+        def add_chronos(df: pd.DataFrame) -> pd.DataFrame:
+            # now look at the self.dataset and where the chronos column is empty run the chronos prediction for it, filling the nan column at that row:
+            # Ensure the dataset is sorted by timestamp (index)
+            df.sort_index(inplace=True)
+            if chronos_on_last:
+                # just do the last row if choronos column is empty
+                if df['chronos'].iloc[-1] is np.nan:
+                    historical_data = df.iloc[:-1]
+                    if not historical_data.empty:
+                        df.at[df.index[-1], 'chronos'] = self.chronos.predict(data=historical_data)
+                return df
+            # Identify rows where the 'chronos' column is NaN - skip first row
+            unpredicted = df.iloc[1:][df['chronos'].isna()]
+            # Process rows with missing 'chronos' one at a time
+            i = 0
+            for idx, row in unpredicted.iterrows():
+                # Slice the dataset up to (but not including) the current timestamp
+                historical_data = df.loc[:idx].iloc[:-1]
+                # Ensure historical_data is non-empty before calling predict
+                if not historical_data.empty:
+                    # Predict and fill the 'chronos' value for the current row
+                    df.at[idx, 'chronos'] = self.chronos.predict(data=historical_data[['value']])
+                # adding this data can be slow, so we'll just do a few at a time
+                i += 1
+                if i > 4:
+                    break
+            return df
+
         self.dataset, sampling_frequency = update_data(data)
         self.dataset = add_percentage_change(self.dataset)
+        self.dataset = add_chronos(self.dataset)
         return self.dataset, sampling_frequency
-
 
     @staticmethod
     def _prepare_time_features(dates: np.ndarray) -> pd.DataFrame:
@@ -211,7 +246,7 @@ class XgbPipeline(PipelineInterface):
         Generates randomized hyperparameters for XGBoost within reasonable ranges.
         Returns a dictionary of hyperparameters.
         """
-        param_bounds: dict = XgbPipeline.param_bounds()
+        param_bounds: dict = XgbChronosPipeline.param_bounds()
         rng = rng or np.random.default_rng(37)
         params = {
             'random_state': rng.integers(0, 10000),
@@ -257,8 +292,8 @@ class XgbPipeline(PipelineInterface):
             dict: A dictionary of tweaked hyperparameters.
         """
         rng = rng or np.random.default_rng(37)
-        prev_params = prev_params or XgbPipeline._prep_params(rng)
-        param_bounds: dict = XgbPipeline.param_bounds()
+        prev_params = prev_params or XgbChronosPipeline._prep_params(rng)
+        param_bounds: dict = XgbChronosPipeline.param_bounds()
         mutated_params = {}
         for param, (min_bound, max_bound) in param_bounds.items():
             current_value = prev_params[param]

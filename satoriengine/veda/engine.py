@@ -1,13 +1,12 @@
 import warnings
 warnings.filterwarnings('ignore')
-from typing import Union, Dict
+from typing import Dict
+import os
+import time
 import copy
 import json
 import threading
 import pandas as pd
-
-import pickle
-import os
 from reactivex.subject import BehaviorSubject
 from satorilib.utils.hash import hashIt, generatePathId
 from satorilib.utils.time import datetimeToTimestamp, now
@@ -15,15 +14,11 @@ from satorilib.utils.system import getProcessorCount
 from satorilib.disk import getHashBefore
 from satorilib.concepts import Stream, StreamId, Observation
 from satorilib.disk.filetypes.csv import CSVManager
-from satorilib.logging import debug, info, error, setup, DEBUG, INFO
+from satorilib.logging import debug, info, error, setup, INFO
 from satoriengine.veda.Data import StreamForecast
-from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline
+from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline, XgbChronosPipeline
 
 setup(level=INFO)
-
-setup(level=INFO)
-
-
 class Engine:
     def __init__(self, streams: list[Stream], pubstreams: list[Stream]):
         self.streams = streams
@@ -33,6 +28,14 @@ class Engine:
         self.prediction_produced: BehaviorSubject = BehaviorSubject(None)
         self.setup_subscriptions()
         self.initialize_models()
+
+    def pause(self):
+        for streamModel in self.streamModels.values():
+            streamModel.pause()
+
+    def resume(self):
+        for streamModel in self.streamModels.values():
+            streamModel.resume()
 
     def setup_subscriptions(self):
         self.new_observation.subscribe(
@@ -57,7 +60,9 @@ class Engine:
             streamModel.run_forever()
         if streamModel is not None and len(streamModel.data) > 1:
             debug(f'Making prediction based on new observation using {streamModel.pipeline.__name__}', color='teal')
+            self.pause()
             streamModel.produce_prediction()
+            self.resume()
         else:
             info(f"No model found for stream {observation.streamId}")
 
@@ -81,11 +86,17 @@ class StreamModel:
         self.prediction_produced = prediction_produced
         self.data: pd.DataFrame = self.load_data()
         self.pipeline: PipelineInterface = self.choose_pipeline()
-        self.pilot: PipelineInterface = self.pipeline()  # Create instance first
-        self.pilot.load(self.model_path())  # Then load model on the instance
+        self.pilot: PipelineInterface = self.pipeline(uid=streamId)
+        self.pilot.load(self.model_path())
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
+        self.paused: bool = False
         print(self.pipeline.__name__)
 
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
 
     def handle_new_observation(self, observation: Observation):
         """extract the data and save it to self.data"""
@@ -111,7 +122,7 @@ class StreamModel:
         if updated_model is not None:
             debug('2 predict', print=True)
             forecast = updated_model.predict(data=self.data)
-            debug('3 predict', print=True)
+            print('forecast', forecast)
             if isinstance(forecast, pd.DataFrame):
                 observationTime = datetimeToTimestamp(now())
                 prediction = StreamForecast.firstPredictionOf(forecast)
@@ -128,6 +139,7 @@ class StreamModel:
                     observationTime=observationTime,
                     observationHash=observationHash,
                     predictionHistory=CSVManager().read(self.prediction_data_path()))
+                print('streamforecast', streamforecast)
                 self.prediction_produced.on_next(streamforecast)
             else:
                 error("Forecast failed, retrying with Quick Model")
@@ -213,26 +225,19 @@ class StreamModel:
         #        self.pilot = StarterPipeline()
         #    return StarterPipeline
         if self.data is None or len(self.data) < 3:
-            if inplace and not isinstance(self.pilot, StarterPipeline):
-                self.pilot = StarterPipeline()
-            return StarterPipeline
+            pipeline = StarterPipeline
         if getProcessorCount() < 4:
-            if inplace and not isinstance(self.pilot, XgbPipeline):
-                self.pilot = XgbPipeline()
-            return XgbPipeline
-        if 3 <= len(self.data) < 40 or len(self.data) > 1000:
-            if inplace and not isinstance(self.pilot, XgbPipeline):
-                self.pilot = XgbPipeline()
-            return XgbPipeline
-        # at least 4 processors and
-        # at least 40 observations
-        # still debugging
-        if inplace and not isinstance(self.pilot, SKPipeline):
-            self.pilot = SKPipeline()
-        return SKPipeline
-        # if inplace and not isinstance(self.pilot, XgbPipeline):
-        #     self.pilot = XgbPipeline()
-        # return XgbPipeline
+            pipeline = XgbPipeline
+        elif 3 <= len(self.data) < 1_000:
+            pipeline = XgbChronosPipeline
+        elif len(self.data) < 10_000:
+            pipeline = SKPipeline
+        else:
+            pipeline = XgbChronosPipeline
+        if inplace and not isinstance(self.pilot, pipeline):
+            self.pipeline = pipeline
+            self.pilot = pipeline()
+        return pipeline
 
 
     def run(self):
@@ -245,6 +250,9 @@ class StreamModel:
         # still have a "problem?" where the model makes predictions right away
         # wasn't sure SKPipeline was working so just using XgbPipeline for now
         while len(self.data) > 0:
+            if self.paused:
+                time.sleep(1)
+                continue
             trainingResult = self.pilot.fit(data=self.data)
             if trainingResult.status == 1 and not trainingResult.stagnated:
                 if self.pilot.compare(self.stable):
