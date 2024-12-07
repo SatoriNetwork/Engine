@@ -98,7 +98,7 @@ class StreamModel:
         self.pilot.load(self.modelPath())
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
         self.paused: bool = False
-        debug(f'StreamModel initialized with {self.pipeline.__name__}', color='teal')
+        debug(f'StreamModel {generatePathId(streamId=self.streamId)} initialized with {self.pipeline.__name__}', color='teal')
 
     def pause(self):
         self.paused = True
@@ -163,7 +163,9 @@ class StreamModel:
                     trainingResult = rollbackModel.fit(data=self.data)
                     if trainingResult.status == 1:
                         debug(
-                            f"New model trained: {trainingResult.model[0].model_name}", color="teal")
+                            f'New model trained: '
+                            f'{trainingResult.model[0].model_name}',
+                            color="teal")
                         self.stable = copy.deepcopy(rollbackModel)
                         self.producePrediction(self.stable)
                     else:
@@ -209,11 +211,6 @@ class StreamModel:
             f'{generatePathId(streamId=self.predictionStreamId)}/aggregate.csv')
 
     def modelPath(self) -> str:
-        debug(
-            '/Satori/Neuron/models/veda/'
-            f'{generatePathId(streamId=self.streamId)}/'
-            f'{self.pipeline.__name__}.joblib',
-            color="teal")
         return (
             '/Satori/Neuron/models/veda/'
             f'{generatePathId(streamId=self.streamId)}/'
@@ -255,6 +252,7 @@ class StreamModel:
                 color='blue')
             self.pipeline = pipeline
             self.pilot = pipeline(uid=self.streamId)
+            self.pilot.load(self.modelPath())
         return pipeline
 
     def run(self):
