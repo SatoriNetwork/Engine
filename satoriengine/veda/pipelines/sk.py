@@ -20,7 +20,8 @@ class SKPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        if kwargs.get('cpu', 0) > 4 and kwargs.get('dataCount', 0) < 10_000:
+        proc_data = process_data(kwargs.get('dataCount'))
+        if kwargs.get('cpu', 0) > 4 and len(proc_data.dataset) < 10_000 and pd.Timedelta(proc_data.sampling_frequency) > pd.Timedelta(minutes=20):
             return 1.0
         return 0.0
 

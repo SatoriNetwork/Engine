@@ -21,7 +21,8 @@ class XgbChronosPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        if 5 <= kwargs.get('dataCount', 0) < 1_000:
+        proc_data = process_data(kwargs.get('dataCount', 0))
+        if 5 <= len(proc_data.dataset) < 1_000:
             return 1.0
         return 0.0
 

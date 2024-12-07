@@ -15,7 +15,8 @@ class XgbPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        if kwargs.get('cpu', 0) == 1 or kwargs.get('dataCount', 0) >= 10_000:
+        proc_data = process_data(kwargs.get('dataCount', 0))
+        if kwargs.get('cpu', 0) == 1 or len(proc_data.dataset) >= 10_000:
             return 1.0
         return 0.0
 

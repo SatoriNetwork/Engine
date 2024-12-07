@@ -67,7 +67,7 @@ class StarterPipeline(PipelineInterface):
                 "pred": [value]})
         starterResult = result(
             forecast=forecast,
-            backtest_error=20,
+            backtest_error=20000,
             model_name="starterDataset_model",
             unfitted_forecaster=None)
         return 1, [starterResult]
