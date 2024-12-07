@@ -8,7 +8,7 @@ class StarterPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        if kwargs.get('dataCount', 0) < 5:
+        if len(kwargs.get('data', [])) < 5:
             return 1.0
         return 0.0
 

@@ -21,8 +21,7 @@ class XgbChronosPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        proc_data = process_data(kwargs.get('dataCount', 0))
-        if 5 <= len(proc_data.dataset) < 1_000:
+        if 5 <= len(kwargs.get('data', [])) < 1_000:
             return 1.0
         return 0.0
 
@@ -54,6 +53,17 @@ class XgbChronosPipeline(PipelineInterface):
                 os.remove(modelPath)
             return None
 
+    def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
+        """loads the model model from disk if present"""
+        modelPath = self._setModelPath(modelPath)
+        saved = XgbChronosPipeline._load(modelPath, **kwargs)
+        if saved is None:
+            return None
+        self.model = saved['stableModel']
+        self.modelError = saved['modelError']
+        self.dataset = saved['dataset']
+        return self.model
+
     @staticmethod
     def _save(
         model: XGBRegressor,
@@ -66,24 +76,14 @@ class XgbChronosPipeline(PipelineInterface):
         print('saving model to:', modelPath, dataset, len(dataset[~dataset['chronos'].isna()]))
         try:
             os.makedirs(os.path.dirname(modelPath), exist_ok=True)
-            state = {
+            joblib.dump({
                 'stableModel': model,
                 'modelError': modelError,
-                'dataset': dataset}
-            joblib.dump(state, modelPath)
+                'dataset': dataset}, modelPath)
             return True
         except Exception as e:
             warning(f"Error saving model: {e}")
             return False
-
-    def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
-        """loads the model model from disk if present"""
-        modelPath = self._setModelPath(modelPath)
-        saved = XgbChronosPipeline._load(modelPath, **kwargs)
-        self.model = saved['stableModel']
-        self.modelError = saved['modelError']
-        self.dataset = saved['dataset']
-        return self.model
 
     def save(self, modelPath: str = None, **kwargs) -> bool:
         """saves the stable model to disk"""
@@ -91,11 +91,10 @@ class XgbChronosPipeline(PipelineInterface):
         try:
             os.makedirs(os.path.dirname(modelPath), exist_ok=True)
             self.modelError = self.score()
-            state = {
+            joblib.dump({
                 'stableModel': self.model,
                 'modelError': self.modelError,
-                'dataset': self.dataset}
-            joblib.dump(state, modelPath)
+                'dataset': self.dataset}, modelPath)
             return True
         except Exception as e:
             warning(f"Error saving model: {e}")
@@ -134,7 +133,7 @@ class XgbChronosPipeline(PipelineInterface):
 
     def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         """ Train a new model """
-        _, _ = self._manageData(data)
+        self._manageData(data)
         pre_trainX, pre_testX, self.trainY, self.testY = train_test_split(
             self.dataset.index.values,
             self.dataset['value'],
@@ -159,18 +158,13 @@ class XgbChronosPipeline(PipelineInterface):
 
     def predict(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """Make predictions using the stable model"""
-        _, sampling_frequency = self._manageData(data, chronosOnLast=True)
+        self._manageData(data, chronosOnLast=True)
         self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
         self.fullY = self.dataset['value']
-        self.model.fit(
-            self.fullX,
-            self.fullY,
-            verbose=False)
+        self.model.fit(self.fullX, self.fullY, verbose=False)
         lastDate = pd.Timestamp(self.dataset.index[-1])
-        futurePredictions = self._predictFuture(
-            self.model,
-            lastDate,
-            sampling_frequency)
+        frequency = self._getSamplingFrequency(self.dataset)
+        futurePredictions = self._predictFuture(self.model, lastDate, frequency)
         return futurePredictions
 
     def _setModelPath(self, modelPath: str = None) -> str:
@@ -191,10 +185,10 @@ class XgbChronosPipeline(PipelineInterface):
         ):
             saved = XgbChronosPipeline._load(other.modelPath)
             XgbChronosPipeline._save(
-                    model=saved['stableModel'],
-                    modelError=saved['modelError'],
-                    dataset=self.dataset,
-                    modelPath=other.modelPath)
+                model=saved['stableModel'],
+                modelError=saved['modelError'],
+                dataset=self.dataset,
+                modelPath=other.modelPath)
 
     def _predictFuture(
         self,
@@ -213,6 +207,31 @@ class XgbChronosPipeline(PipelineInterface):
         results = pd.DataFrame({'date_time': futureDates, 'pred': predictions})
         return results
 
+    def _getSamplingFrequency(self, dataset: pd.DataFrame):
+
+        def fmt(sf):
+            return "".join(
+                f"{v}{abbr[k]}"
+                for k, v in sf.components._asdict().items()
+                if v != 0)
+
+        sf = dataset.index.to_series().diff().median()
+        # Convert to frequency string
+        abbr = {
+            "days": "d",
+            "hours": "h",
+            "minutes": "min",
+            "seconds": "s",
+            "milliseconds": "ms",
+            "microseconds": "us",
+            "nanoseconds": "ns"}
+        if isinstance(sf, pd.Timedelta):
+            return fmt(sf)
+        elif isinstance(sf, pd.TimedeltaIndex):
+            return sf.map(fmt)
+        else:
+            raise ValueError
+
     def _manageData(self, data: pd.DataFrame, chronosOnLast:bool=False) -> tuple[pd.DataFrame, str]:
         '''
         here we need to merge the chronos predictions with the data, but it
@@ -222,23 +241,39 @@ class XgbChronosPipeline(PipelineInterface):
         '''
 
         def updateData(data: pd.DataFrame) -> pd.DataFrame:
-            procData = process_data(data, quick_start=False)
-            procData.dataset.drop(['id'], axis=1, inplace=True)
+
+            def conformData(data: pd.DataFrame) -> pd.DataFrame:
+                data['date_time'] = pd.to_datetime(data['date_time'])
+                data['date_time'] = data['date_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                data['date_time'] = pd.to_datetime(
+                    data['date_time'],
+                    format='%Y-%m-%d %H:%M:%S')
+                data = data.set_index('date_time')
+                data.drop(['id'], axis=1, inplace=True)
+                data['hour'] = data.index.hour  # (0-23)
+                data['dayofweek'] = data.index.dayofweek  # (0=Monday, 6=Sunday)
+                data['month'] = data.index.month  # (1-12)
+                return data
+
+            data = conformData(data)
             # incrementally add missing processed data rows to the self.dataset
             if self.dataset is None:
-                self.dataset = procData.dataset
+                self.dataset = data
                 self.dataset['chronos'] = np.nan
             else:
                 # Identify rows in procData.dataset not present in self.dataset
-                missingRows = procData.dataset[~procData.dataset.index.isin(self.dataset.index)]
+                missingRows = data[~data.index.isin(self.dataset.index)]
                 # Append only the missing rows to self.dataset
                 self.dataset = pd.concat([self.dataset, missingRows])
-            return self.dataset, procData.sampling_frequency
+            return self.dataset.drop_duplicates(subset='value', keep='first')
 
         def addPercentageChange(df: pd.DataFrame) -> pd.DataFrame:
 
             def calculatePercentageChange(df, past):
-                return ((df['value'] - df['value'].shift(past)) / df['value'].shift(past)) * 100
+                return (
+                    (df['value'] - df['value'].shift(past)) /
+                    df['value'].shift(past)
+                ) * 100
 
             for past in [1, 2, 3, 5, 8, 13, 21, 34, 55]:
                 df[f'percent{past}'] = calculatePercentageChange(df, past)
@@ -272,10 +307,10 @@ class XgbChronosPipeline(PipelineInterface):
                     break
             return df
 
-        self.dataset, samplingFrequency = updateData(data)
+        self.dataset = updateData(data)
         self.dataset = addPercentageChange(self.dataset)
         self.dataset = addChronos(self.dataset)
-        return self.dataset, samplingFrequency
+        return self.dataset
 
 
     @staticmethod

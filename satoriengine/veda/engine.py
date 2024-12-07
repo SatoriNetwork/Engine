@@ -26,27 +26,34 @@ class Engine:
         self.streams = streams
         self.pubstreams = pubstreams
         self.streamModels: Dict[StreamId, StreamModel] = {}
-        self.new_observation: BehaviorSubject = BehaviorSubject(None)
+        self.newObservation: BehaviorSubject = BehaviorSubject(None)
         self.predictionProduced: BehaviorSubject = BehaviorSubject(None)
-        self.setup_subscriptions()
-        self.initialize_models()
+        self.setupSubscriptions()
+        self.initializeModels()
+        self.paused: bool = False
+        self.threads: list[threading.Thread] = []
 
-    def pause(self):
+    def pause(self, force: bool = False):
+        if force:
+            self.paused = True
         for streamModel in self.streamModels.values():
             streamModel.pause()
 
-    def resume(self):
-        for streamModel in self.streamModels.values():
-            streamModel.resume()
+    def resume(self, force: bool = False):
+        if force:
+            self.paused = False
+        if not self.paused:
+            for streamModel in self.streamModels.values():
+                streamModel.resume()
 
-    def setup_subscriptions(self):
-        self.new_observation.subscribe(
+    def setupSubscriptions(self):
+        self.newObservation.subscribe(
             on_next=lambda x: self.handleNewObservation(
                 x) if x is not None else None,
-            on_error=lambda e: self.handle_error(e),
-            on_completed=lambda: self.handle_completion())
+            on_error=lambda e: self.handleError(e),
+            on_completed=lambda: self.handleCompletion())
 
-    def initialize_models(self):
+    def initializeModels(self):
         for stream, pubStream in zip(self.streams, self.pubstreams):
             self.streamModels[stream.streamId] = StreamModel(
                 streamId=stream.streamId,
@@ -54,28 +61,44 @@ class Engine:
                 predictionProduced=self.predictionProduced)
             self.streamModels[stream.streamId].choosePipeline(inplace=True)
             self.streamModels[stream.streamId].run_forever()
-            #break  # only one stream for testing
+            break  # only one stream for testing
 
     def handleNewObservation(self, observation: Observation):
-        streamModel = self.streamModels.get(observation.streamId)
-        streamModel.handleNewObservation(observation)
-        if streamModel.thread is None or not streamModel.thread.is_alive():
-            streamModel.choosePipeline(inplace=True)
-            streamModel.run_forever()
-        if streamModel is not None and len(streamModel.data) > 1:
-            debug(
-                f'Making prediction based on new observation using {streamModel.pipeline.__name__}', color='teal')
-            self.pause()
-            streamModel.producePrediction()
-            self.resume()
-        else:
-            info(f"No model found for stream {observation.streamId}")
+        # spin off a new thread to handle the new observation
+        thread = threading.Thread(
+            target=self.handleNewObservationThread,
+            args=(observation,))
+        thread.start()
+        self.threads.append(thread)
+        self.cleanupThreads()
 
-    def handle_error(self, error):
+    def cleanupThreads(self):
+        for thread in self.threads:
+            if not thread.is_alive():
+                self.threads.remove(thread)
+        debug(f'prediction thread count: {len(self.threads)}', color='teal')
+
+    def handleNewObservationThread(self, observation: Observation):
+        streamModel = self.streamModels.get(observation.streamId)
+        if streamModel is not None:
+            self.pause()
+            streamModel.handleNewObservation(observation)
+            if streamModel.thread is None or not streamModel.thread.is_alive():
+                streamModel.choosePipeline(inplace=True)
+                streamModel.run_forever()
+            if streamModel is not None and len(streamModel.data) > 1:
+                debug(
+                    f'Making prediction based on new observation using {streamModel.pipeline.__name__}', color='teal')
+                streamModel.producePrediction()
+            else:
+                info(f"No model found for stream {observation.streamId}")
+            self.resume()
+
+    def handleError(self, error):
         print(f"An error occurred new_observaiton: {error}")
 
-    def handle_completion(self):
-        print("new_observation completed")
+    def handleCompletion(self):
+        print("newObservation completed")
 
 
 class StreamModel:
@@ -85,6 +108,7 @@ class StreamModel:
         predictionStreamId: StreamId,
         predictionProduced: BehaviorSubject,
     ):
+        self.cpu = getProcessorCount()
         self.preferredPipelines: list[PipelineInterface] = [StarterPipeline, XgbPipeline, XgbChronosPipeline, SKPipeline]
         self.defaultPipelines: list[PipelineInterface] = [XgbPipeline, XgbPipeline, StarterPipeline]
         self.failedPipelines = []
@@ -232,7 +256,7 @@ class StreamModel:
             for p in self.preferredPipelines:
                 if p in self.failedPipelines:
                     continue
-                if p.condition(dataCount=len(self.data)) == 1:
+                if p.condition(data=self.data, cpu=self.cpu) == 1:
                     pipeline = p
                     break
             if pipeline is None:
@@ -264,7 +288,7 @@ class StreamModel:
         """
         while len(self.data) > 0:
             if self.paused:
-                time.sleep(1)
+                time.sleep(10)
                 continue
             self.choosePipeline(inplace=True)
             trainingResult = self.pilot.fit(data=self.data)

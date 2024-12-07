@@ -41,15 +41,15 @@ from satorilib.logging import debug, info, error
 class Features:
     def __init__(
         self,
-        selected_lags: int, 
+        selected_lags: int,
         selected_exog: list,
-        differentiation: int, 
-        dataset_selected_features: pd.DataFrame, 
-        forecast_calendar_features: list, 
-        hour_seasonality: Union[bool, None], 
-        dow_seasonality: Union[bool, None], 
-        week_seasonality: Union[bool, None], 
-        missing_values: bool, 
+        differentiation: int,
+        dataset_selected_features: pd.DataFrame,
+        forecast_calendar_features: list,
+        hour_seasonality: Union[bool, None],
+        dow_seasonality: Union[bool, None],
+        week_seasonality: Union[bool, None],
+        missing_values: bool,
         weight: Union[Callable[[pd.DatetimeIndex], np.ndarray], None]
     ):
         self.selected_lags = selected_lags
@@ -62,7 +62,7 @@ class Features:
         self.week_seasonality = week_seasonality
         self.missing_values = missing_values
         self.weight = weight
-        
+
 
 def create_forecaster(model_type, if_exog=None, random_state=None, verbose=None, lags=None, differentiation=None, custom_params=None, weight=None, steps=None, time_metric_baseline="days", forecasterequivalentdate=1, forecasterequivalentdate_n_offsets=7, y=None, start_p=24, start_q=0, max_p=24, max_q=1, seasonal=True, test='adf', m=24, d=None, D=None):
     forecaster_params = {
@@ -599,20 +599,20 @@ def determine_feature_set(
     end_train: pd.Timestamp,
     dataset_start_time: pd.Timestamp,
     dataset_end_time: pd.Timestamp,
-    dataset_with_features: pd.DataFrame, 
+    dataset_with_features: pd.DataFrame,
     weight_para: bool = False,
     modeltype: str = "tree_or_forest",
-    initial_lags : Union[int, None] = None, 
-    exogenous_feature_type : Union[str, None] = None, 
-    feature_set_reduction : bool = False, 
-    feature_set_reduction_method : Union[str, None] = None, 
-    FeatureSetReductionStep : int = 5, 
-    FeatureSetReductionSubSample : float = 0.5, 
+    initial_lags : Union[int, None] = None,
+    exogenous_feature_type : Union[str, None] = None,
+    feature_set_reduction : bool = False,
+    feature_set_reduction_method : Union[str, None] = None,
+    FeatureSetReductionStep : int = 5,
+    FeatureSetReductionSubSample : float = 0.5,
     RFECV_CV: int = 2,
     RFECV_min_features_to_select: int = 10,
     RFE_n_features_to_select: Union[int, None] = None,
-    bayesian_trial: Union[int, None] = None, 
-    random_state_hyper: int = 123, 
+    bayesian_trial: Union[int, None] = None,
+    random_state_hyper: int = 123,
     frequency: str = '1h',
     backtest_steps: int = 24,
     prediction_steps: int = 24,
@@ -665,7 +665,7 @@ def determine_feature_set(
 
     if not hyper_flag:
         feature_set_reduction = False
-        
+
     if feature_set_reduction == True:
 
         if exog_features == []:
@@ -686,7 +686,7 @@ def determine_feature_set(
 
         # Hyper-Parameter Search
         model_search = GeneralizedHyperparameterSearch(forecaster=hyper_forecaster, y=dataset.loc[:end_validation, value], lags=initial_lags, steps=backtest_steps, initial_train_size=len(data_train), metric="mean_absolute_scaled_error")
-        
+
         results_search, _ = model_search.bayesian_search(
             n_trials=bayesian_trial,
             random_state=random_state_hyper)
@@ -701,10 +701,10 @@ def determine_feature_set(
                 y=dataset.loc[:end_train, value],
                 exog=dataset_with_features.loc[:end_train, exog_features], # replace exog_features if needed
                 end_train=end_train,
-                step=FeatureSetReductionStep, 
+                step=FeatureSetReductionStep,
                 cv=RFECV_CV,
                 min_features_to_select=RFECV_min_features_to_select,
-                subsample=FeatureSetReductionSubSample, 
+                subsample=FeatureSetReductionSubSample,
                 verbose=False
             )
         elif feature_set_reduction_method=='RFE':
@@ -753,7 +753,3 @@ def determine_feature_set(
 
     return Features(
         selected_lags, selected_exog, differentiation, dataset_selected_features, forecast_calendar_features, hour_seasonality, dow_seasonality, week_seasonality, missing_values, weight)
-
-
-
-

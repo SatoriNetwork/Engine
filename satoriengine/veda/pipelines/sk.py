@@ -20,8 +20,28 @@ class SKPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        proc_data = process_data(kwargs.get('dataCount'))
-        if kwargs.get('cpu', 0) > 4 and len(proc_data.dataset) < 10_000 and pd.Timedelta(proc_data.sampling_frequency) > pd.Timedelta(minutes=20):
+
+        def calculateRegularDataCount(data: pd.DataFrame, column: str) -> int:
+            # Ensure the column is in datetime format
+            data[column] = pd.to_datetime(data[column])
+            # Sort data by the datetime column
+            data = data.sort_values(by=column)
+            # Calculate time differences and round to the nearest minute
+            time_diffs = data[column].diff().dropna().dt.round('T')
+            # Determine the most common interval (in seconds)
+            interval = time_diffs.value_counts().idxmax().total_seconds()
+            # Calculate total time span in seconds
+            seconds = (data[column].max() - data[column].min()).total_seconds()
+            # Calculate the number of regular data points
+            return int(seconds // interval) + 1
+
+        data = kwargs.get('data')
+        if data is None:
+            if kwargs.get('cpu', 0) > 4 and len(kwargs.get('data', [])) < 10_000:
+                return 1.0
+            return 0.0
+        regularDataCount = calculateRegularDataCount(data, 'date_time')
+        if kwargs.get('cpu', 0) > 4 and regularDataCount < 10_000:
             return 1.0
         return 0.0
 

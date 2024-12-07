@@ -15,8 +15,7 @@ class XgbPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        proc_data = process_data(kwargs.get('dataCount', 0))
-        if kwargs.get('cpu', 0) == 1 or len(proc_data.dataset) >= 10_000:
+        if kwargs.get('cpu', 0) == 1 or len(kwargs.get('data', [])) >= 10_000:
             return 1.0
         return 0.0
 
@@ -36,9 +35,9 @@ class XgbPipeline(PipelineInterface):
     def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
         """loads the model model from disk if present"""
         try:
-            saved_state = joblib.load(modelPath)
-            self.model = saved_state['stableModel']
-            self.modelError = saved_state['modelError']
+            saved = joblib.load(modelPath)
+            self.model = saved['stableModel']
+            self.modelError = saved['modelError']
             return self.model
         except Exception as e:
             debug(f"Error Loading Model File : {e}", print=True)
