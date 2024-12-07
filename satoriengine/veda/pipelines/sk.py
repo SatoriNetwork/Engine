@@ -18,16 +18,22 @@ setup(level=DEBUG)
 
 class SKPipeline(PipelineInterface):
 
-    def __init__(self, *args, **kwargs):
-        self.model: Union[List, None] = None
-        self.model_error: float = None
+    @staticmethod
+    def condition(*args, **kwargs) -> float:
+        if kwargs.get('cpu', 0) > 4 and kwargs.get('dataCount', 0) < 10_000:
+            return 1.0
+        return 0.0
 
-    def load(self, modelPath: str, *args, **kwargs) -> Union[None, List]:
+    def __init__(self, **kwargs):
+        self.model: Union[List, None] = None
+        self.modelError: float = None
+
+    def load(self, modelPath: str, **kwargs) -> Union[None, List]:
         """loads the model model from disk if present"""
         try:
             saved_state = joblib.load(modelPath)
-            self.model = saved_state['stable_model']
-            self.model_error = saved_state['model_error']
+            self.model = saved_state['stableModel']
+            self.modelError = saved_state['modelError']
             return self.model
         except Exception as e:
             debug(f"Error Loading Model File : {e}", print=True)
@@ -35,14 +41,14 @@ class SKPipeline(PipelineInterface):
                 os.remove(modelPath)
             return None
 
-    def save(self, modelpath: str, *args, **kwargs) -> bool:
+    def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         try:
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
-            self.model_error = self.score()
+            self.modelError = self.score()
             state = {
-                'stable_model' : self.model,
-                'model_error' : self.model_error
+                'stableModel' : self.model,
+                'modelError' : self.modelError
             }
             joblib.dump(state, modelpath)
             return True
@@ -50,21 +56,7 @@ class SKPipeline(PipelineInterface):
             print(f"Error saving model: {e}")
             return False
 
-    def fit(self, *args, **kwargs) -> TrainingResult:
-        debug("model error = ", self.score(), color="white")
-        if self.model is None:
-            status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["quick_start"])
-        else:
-            status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["random_model"])
-
-        if status == 1:
-            self.model = model
-            debug("Model Picked for Training : ", self.model[0].model_name, print=True)
-        else:
-            self.model = None
-        return TrainingResult(status, self, False)
-
-    def compare(self, other: Union[PipelineInterface, None] = None, *args, **kwargs) -> bool:
+    def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """true indicates this model is better than the other model"""
         # if isinstance(other, self.__class__):
         #     if self.score() < other.score():
@@ -83,30 +75,44 @@ class SKPipeline(PipelineInterface):
         # return True
         if not isinstance(other, self.__class__):
             return True
-        this_score = self.score()
-        other_score = other.model_error or other.score()
-        is_improved = this_score < other_score
-        if is_improved:
+        thisScore = self.score()
+        otherScore = other.modelError or other.score()
+        isImproved = thisScore < otherScore
+        if isImproved:
             info(
                 'model improved!'
-                f'\n  stable score: {other_score}'
-                f'\n  pilot  score: {this_score}',
+                f'\n  stable score: {otherScore}'
+                f'\n  pilot  score: {thisScore}',
                 f'\n  New Model: {self.forecasterName()}',
                 color='green')
         else:
             debug(
-                f'\nstable score: {other_score}'
-                f'\npilot  score: {this_score}',
+                f'\nstable score: {otherScore}'
+                f'\npilot  score: {thisScore}',
                 color='yellow')
-        return is_improved
+        return isImproved
 
-    def score(self, *args, **kwargs) -> float:
+    def score(self, **kwargs) -> float:
         if self.model == None:
             return np.inf
-        self.model_error = self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
-        return self.model_error
+        self.modelError = self.model[0].backtest_error if self.model[0].backtest_error != 0 else 1000
+        return self.modelError
 
-    def predict(self, *args, **kwargs) -> Union[None, pd.DataFrame]:
+    def fit(self, **kwargs) -> TrainingResult:
+        debug("model error = ", self.score(), color="white")
+        if self.model is None:
+            status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["quick_start"])
+        else:
+            status, model = SKPipeline.skEnginePipeline(kwargs["data"], ["random_model"])
+
+        if status == 1:
+            self.model = model
+            debug("Model Picked for Training : ", self.model[0].model_name, print=True)
+        else:
+            self.model = None
+        return TrainingResult(status, self)
+
+    def predict(self, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""
         debug(f"Prediction with Model : {self.model[0].model_name}", print=True)
         status, predictor_model = SKPipeline.skEnginePipeline(

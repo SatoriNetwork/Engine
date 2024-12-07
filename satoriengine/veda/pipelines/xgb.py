@@ -13,25 +13,31 @@ from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingRes
 
 class XgbPipeline(PipelineInterface):
 
-    def __init__(self, *args, **kwargs):
+    @staticmethod
+    def condition(*args, **kwargs) -> float:
+        if kwargs.get('cpu', 0) == 1 or kwargs.get('dataCount', 0) >= 10_000:
+            return 1.0
+        return 0.0
+
+    def __init__(self, **kwargs):
         self.model: XGBRegressor = None
         self.hyperparameters: Union[dict, None] = None
-        self.train_x: pd.DataFrame = None
-        self.test_x: pd.DataFrame = None
-        self.train_y: np.ndarray = None
-        self.test_y: np.ndarray = None
-        self.X_full: pd.DataFrame = None
-        self.y_full: pd.Series = None
+        self.trainX: pd.DataFrame = None
+        self.testX: pd.DataFrame = None
+        self.trainY: np.ndarray = None
+        self.testY: np.ndarray = None
+        self.fullX: pd.DataFrame = None
+        self.fullY: pd.Series = None
         self.split: float = None
-        self.model_error: float = None
+        self.modelError: float = None
         self.rng = np.random.default_rng(37)
 
-    def load(self, modelPath: str, *args, **kwargs) -> Union[None, XGBRegressor]:
+    def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
         """loads the model model from disk if present"""
         try:
             saved_state = joblib.load(modelPath)
-            self.model = saved_state['stable_model']
-            self.model_error = saved_state['model_error']
+            self.model = saved_state['stableModel']
+            self.modelError = saved_state['modelError']
             return self.model
         except Exception as e:
             debug(f"Error Loading Model File : {e}", print=True)
@@ -39,14 +45,14 @@ class XgbPipeline(PipelineInterface):
                 os.remove(modelPath)
             return None
 
-    def save(self, modelpath: str, *args, **kwargs) -> bool:
+    def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         try:
             os.makedirs(os.path.dirname(modelpath), exist_ok=True)
-            self.model_error = self.score()
+            self.modelError = self.score()
             state = {
-                'stable_model' : self.model,
-                'model_error' : self.model_error}
+                'stableModel' : self.model,
+                'modelError' : self.modelError}
             joblib.dump(state, modelpath)
             return True
         except Exception as e:
@@ -54,99 +60,95 @@ class XgbPipeline(PipelineInterface):
             return False
         
 
-    def compare(self, other: Union[PipelineInterface, None] = None, *args, **kwargs) -> bool:
+    def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """
         Compare other (model) and this models based on their backtest error.
         Returns True if this model performs better than other model.
         """
         if not isinstance(other, self.__class__):
             return True
-        this_score = self.score()
-        other_score = other.model_error or other.score()
-        is_improved = this_score < other_score
-        if is_improved:
+        thisScore = self.score()
+        otherScore = other.modelError or other.score()
+        isImproved = thisScore < otherScore
+        if isImproved:
             info(
                 'model improved!'
-                f'\n  stable score: {other_score}'
-                f'\n  pilot  score: {this_score}'
+                f'\n  stable score: {otherScore}'
+                f'\n  pilot  score: {thisScore}'
                 f'\n  Parameters: {self.hyperparameters}',
                 color='green')
         else:
             debug(
-                f'\nstable score: {other_score}'
-                f'\npilot  score: {this_score}',
-                color='yellow')
-        return is_improved
+                f'\nstable score: {otherScore}'
+                f'\npilot  score: {thisScore}')
+        return isImproved
 
-    def score(self, *args, **kwargs) -> float:
+    def score(self, **kwargs) -> float:
         """will score the model"""
         if self.model is None:
             return np.inf
-        self.model_error = mean_absolute_error(self.test_y, self.model.predict(self.test_x))
-        return self.model_error
+        self.modelError = mean_absolute_error(self.testY, self.model.predict(self.testX))
+        return self.modelError
 
-    def fit(self, data: pd.DataFrame, *args, **kwargs) -> TrainingResult:
+    def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         """ Train a new model """
-        _, _ = self._manage_data(data)
+        _, _ = self._manageData(data)
         # todo: get ready to combine features from different sources (merge)
         # todo: keep a running dataset and update incrementally w/ process_data
         # todo: linear, if not fractal, interpolation
-        pre_train_x, pre_test_x, self.train_y, self.test_y = train_test_split(
+        preTrainX, preTestX, self.trainY, self.testY = train_test_split(
             self.dataset.index.values,
             self.dataset['value'],
             test_size=self.split or 0.2,
             shuffle=False,
             random_state=37)
-        self.train_x = self._prepare_time_features(pre_train_x)
-        self.test_x = self._prepare_time_features(pre_test_x)
-        self.hyperparameters = self._mutate_params(
-            prev_params=self.hyperparameters,
+        self.trainX = self._prepareTimeFeatures(preTrainX)
+        self.testX = self._prepareTimeFeatures(preTestX)
+        self.hyperparameters = self._mutateParams(
+            prevParams=self.hyperparameters,
             rng=self.rng)
         if self.model is None:
             self.model = XGBRegressor(**self.hyperparameters)
         else:
             self.model.set_params(**self.hyperparameters)
         self.model.fit(
-            self.train_x,
-            self.train_y,
-            eval_set=[(self.train_x, self.train_y), (self.test_x, self.test_y)],
+            self.trainX,
+            self.trainY,
+            eval_set=[(self.trainX, self.trainY), (self.testX, self.testY)],
             verbose=False)
-        return TrainingResult(1, self, False)
+        return TrainingResult(1, self)
 
-    def predict(self, data: pd.DataFrame, *args, **kwargs) -> pd.DataFrame:
+    def predict(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """Make predictions using the stable model"""
-        _, sampling_frequency = self._manage_data(data)
-        self.X_full = self._prepare_time_features(self.dataset.index.values)
-        self.y_full = self.dataset['value']
-        self.model.fit(
-            self.X_full,
-            self.y_full,
-            verbose=False)
-        last_date = pd.Timestamp(self.dataset.index[-1])
-        future_predictions = self._predict_future(
+        _, samplingFrequency = self._manageData(data)
+        self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
+        self.fullY = self.dataset['value']
+        self.model.fit(self.fullX, self.fullY, verbose=False)
+        lastDate = pd.Timestamp(self.dataset.index[-1])
+        futurePredictions = self._predictFuture(
             self.model,
-            last_date,
-            sampling_frequency)
-        return future_predictions
+            lastDate,
+            samplingFrequency)
+        return futurePredictions
 
-    def _predict_future(
+    def _predictFuture(
         self,
         model: XGBRegressor,
-        last_date: pd.Timestamp,
+        lastDate: pd.Timestamp,
         sf: str = 'H',
         periods: int = 168,
     ) -> pd.DataFrame:
         """Generate predictions for future periods"""
-        future_dates = pd.date_range(
-            start=pd.Timestamp(last_date) + pd.Timedelta(sf),
+        futureDates = pd.date_range(
+            start=pd.Timestamp(lastDate) + pd.Timedelta(sf),
             periods=periods,
             freq=sf)
-        future_features = self._prepare_time_features(future_dates)
-        predictions = model.predict(future_features)
-        results = pd.DataFrame({'date_time': future_dates, 'pred': predictions})
+        futureFeatures = self._prepareTimeFeatures(futureDates)
+        predictions = model.predict(futureFeatures)
+        results = pd.DataFrame({'date_time': futureDates, 'pred': predictions})
         return results
 
-    def _manage_data(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    def _manageData(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         '''
         here we need to merge the chronos predictions with the data, but it
         must be done incrementally because it takes too long to do it on the
@@ -154,36 +156,36 @@ class XgbPipeline(PipelineInterface):
         incrementally add to it over time.
         '''
 
-        def update_data(data: pd.DataFrame) -> pd.DataFrame:
-            proc_data = process_data(data, quick_start=False)
-            proc_data.dataset.drop(['id'], axis=1, inplace=True)
+        def updateData(data: pd.DataFrame) -> pd.DataFrame:
+            procData = process_data(data, quick_start=False)
+            procData.dataset.drop(['id'], axis=1, inplace=True)
             # incrementally add missing processed data rows to the self.dataset
             if self.dataset is None:
-                self.dataset = proc_data.dataset
+                self.dataset = procData.dataset
                 self.dataset['chronos'] = np.nan
             else:
-                # Identify rows in proc_data.dataset not present in self.dataset
-                missing_rows = proc_data.dataset[~proc_data.dataset.index.isin(self.dataset.index)]
+                # Identify rows in procData.dataset not present in self.dataset
+                missingRows = procData.dataset[~procData.dataset.index.isin(self.dataset.index)]
                 # Append only the missing rows to self.dataset
-                self.dataset = pd.concat([self.dataset, missing_rows])
-            return self.dataset, proc_data.sampling_frequency
+                self.dataset = pd.concat([self.dataset, missingRows])
+            return self.dataset, procData.sampling_frequency
 
-        def add_percentage_change(df: pd.DataFrame) -> pd.DataFrame:
+        def addPercentageChange(df: pd.DataFrame) -> pd.DataFrame:
 
-            def calculate_percentage_change(df, past):
+            def calculatePercentageChange(df, past):
                 return ((df['value'] - df['value'].shift(past)) / df['value'].shift(past)) * 100
 
             for past in [1, 2, 3, 5, 8, 13, 21, 34, 55]:
-                df[f'percent{past}'] = calculate_percentage_change(df, past)
+                df[f'percent{past}'] = calculatePercentageChange(df, past)
             return df
 
-        self.dataset, sampling_frequency = update_data(data)
-        self.dataset = add_percentage_change(self.dataset)
-        return self.dataset, sampling_frequency
+        self.dataset, samplingFrequency = updateData(data)
+        self.dataset = addPercentageChange(self.dataset)
+        return self.dataset, samplingFrequency
 
 
     @staticmethod
-    def _prepare_time_features(dates: np.ndarray) -> pd.DataFrame:
+    def _prepareTimeFeatures(dates: np.ndarray) -> pd.DataFrame:
         """Convert datetime series into numeric features for XGBoost"""
         df = pd.DataFrame({'date_time': pd.to_datetime(dates)})
         df['hour'] = df['date_time'].dt.hour
@@ -194,7 +196,7 @@ class XgbPipeline(PipelineInterface):
         return df.drop('date_time', axis=1)
 
     @staticmethod
-    def param_bounds() -> dict:
+    def paramBounds() -> dict:
         return {
             'n_estimators': (100, 2000),
             'max_depth': (3, 10),
@@ -206,45 +208,45 @@ class XgbPipeline(PipelineInterface):
             'scale_pos_weight': (0.5, 10)}
 
     @staticmethod
-    def _prep_params(rng: Union[np.random.Generator, None] = None) -> dict:
+    def _prepParams(rng: Union[np.random.Generator, None] = None) -> dict:
         """
         Generates randomized hyperparameters for XGBoost within reasonable ranges.
         Returns a dictionary of hyperparameters.
         """
-        param_bounds: dict = XgbPipeline.param_bounds()
+        paramBounds: dict = XgbPipeline.paramBounds()
         rng = rng or np.random.default_rng(37)
         params = {
             'random_state': rng.integers(0, 10000),
             'eval_metric': 'mae',
             'learning_rate': rng.uniform(
-                param_bounds['learning_rate'][0],
-                param_bounds['learning_rate'][1]),
+                paramBounds['learning_rate'][0],
+                paramBounds['learning_rate'][1]),
             'subsample': rng.uniform(
-                param_bounds['subsample'][0],
-                param_bounds['subsample'][1]),
+                paramBounds['subsample'][0],
+                paramBounds['subsample'][1]),
             'colsample_bytree': rng.uniform(
-                param_bounds['colsample_bytree'][0],
-                param_bounds['colsample_bytree'][1]),
+                paramBounds['colsample_bytree'][0],
+                paramBounds['colsample_bytree'][1]),
             'gamma': rng.uniform(
-                param_bounds['gamma'][0],
-                param_bounds['gamma'][1]),
+                paramBounds['gamma'][0],
+                paramBounds['gamma'][1]),
             'n_estimators': rng.integers(
-                param_bounds['n_estimators'][0],
-                param_bounds['n_estimators'][1]),
+                paramBounds['n_estimators'][0],
+                paramBounds['n_estimators'][1]),
             'max_depth': rng.integers(
-                param_bounds['max_depth'][0],
-                param_bounds['max_depth'][1]),
+                paramBounds['max_depth'][0],
+                paramBounds['max_depth'][1]),
             'min_child_weight': rng.integers(
-                param_bounds['min_child_weight'][0],
-                param_bounds['min_child_weight'][1]),
+                paramBounds['min_child_weight'][0],
+                paramBounds['min_child_weight'][1]),
             'scale_pos_weight': rng.uniform(
-                param_bounds['scale_pos_weight'][0],
-                param_bounds['scale_pos_weight'][1])}
+                paramBounds['scale_pos_weight'][0],
+                paramBounds['scale_pos_weight'][1])}
         return params
 
     @staticmethod
-    def _mutate_params(
-        prev_params: Union[dict, None] = None,
+    def _mutateParams(
+        prevParams: Union[dict, None] = None,
         rng: Union[np.random.Generator, None] = None,
     ) -> dict:
         """
@@ -252,43 +254,43 @@ class XgbPipeline(PipelineInterface):
         based on a squished normal distribution that respects both boundaries and the
         relative position of the current value within the range.
         Args:
-            prev_params (dict): A dictionary of previous hyperparameters.
+            prevParams (dict): A dictionary of previous hyperparameters.
         Returns:
             dict: A dictionary of tweaked hyperparameters.
         """
         rng = rng or np.random.default_rng(37)
-        prev_params = prev_params or XgbPipeline._prep_params(rng)
-        param_bounds: dict = XgbPipeline.param_bounds()
-        mutated_params = {}
-        for param, (min_bound, max_bound) in param_bounds.items():
-            current_value = prev_params[param]
-            range_span = max_bound - min_bound
+        prevParams = prevParams or XgbPipeline._prepParams(rng)
+        paramBounds: dict = XgbPipeline.paramBounds()
+        mutatedParams = {}
+        for param, (minBound, maxBound) in paramBounds.items():
+            currentValue = prevParams[param]
+            rangeSpan = maxBound - minBound
             # Generate a symmetric tweak centered on the current value
-            std_dev = range_span * 0.1  # 10% of the range as standard deviation
-            tweak = rng.normal(0, std_dev)
+            stdDev = rangeSpan * 0.1  # 10% of the range as standard deviation
+            tweak = rng.normal(0, stdDev)
             # Adjust the parameter and ensure it stays within bounds
-            new_value = current_value + tweak
-            new_value = max(min_bound, min(max_bound, new_value))
+            newValue = currentValue + tweak
+            newValue = max(minBound, min(maxBound, newValue))
             # Ensure integers for appropriate parameters
             if param in ['n_estimators', 'max_depth', 'min_child_weight']:
-                new_value = int(round(new_value))
-            mutated_params[param] = new_value
+                newValue = int(round(newValue))
+            mutatedParams[param] = newValue
         # to handle static parameters... we should keep random_state static
         # because we're exploring the hyperparameter state space relative to it
-        mutated_params['random_state'] = prev_params['random_state']
-        mutated_params['eval_metric'] = 'mae'
-        return mutated_params
+        mutatedParams['random_state'] = prevParams['random_state']
+        mutatedParams['eval_metric'] = 'mae'
+        return mutatedParams
 
 
     @staticmethod
-    def _straight_line_interpolation(df, value_col, step='10T', scale=0.0, rng: Union[np.random.Generator, None] = None):
+    def _straight_line_interpolation(df, valueColumn, step='10T', scale=0.0, rng: Union[np.random.Generator, None] = None):
         """
         This would probably be better to use than the stepwise pattern as it
         atleast points in the direction of the trend.
         Performs straight line interpolation on missing timestamps.
         Parameters:
         - df: DataFrame with a datetime index and a column to interpolate.
-        - value_col: The column name with values to interpolate.
+        - valueColumn: The column name with values to interpolate.
         - step: The frequency to use for resampling (e.g., '10T' for 10 minutes).
         Returns:
         - DataFrame with interpolated values.
@@ -306,9 +308,9 @@ class XgbPipeline(PipelineInterface):
         # Perform fractal interpolation
         rng = rng or np.random.default_rng(seed=37)
         for _ in range(5):  # Number of fractal iterations
-            filled = df[value_col].interpolate(method='linear')  # Linear interpolation
+            filled = df[valueColumn].interpolate(method='linear')  # Linear interpolation
             perturbation = rng.normal(scale=scale, size=len(filled))  # Small random noise
-            df[value_col] = filled + perturbation  # Add fractal-like noise
+            df[valueColumn] = filled + perturbation  # Add fractal-like noise
         return df
 
     @staticmethod

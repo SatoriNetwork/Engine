@@ -7,16 +7,31 @@ from satorilib.logging import error, debug, info
 
 class TrainingResult:
 
-    def __init__(self, status, model: "PipelineInterface", stagnated: bool = False):
+    def __init__(self, status, model: "PipelineInterface"):
         self.status = status
         self.model = model
-        self.stagnated = stagnated
-
+        self.modelError = None
 
 class PipelineInterface:
 
     def __init__(self, *args, **kwargs):
         self.model = None
+
+    @staticmethod
+    def condition(*args, **kwargs) -> float:
+        """
+        defines the condition for the pipeline to be executed
+
+        Args:
+            accepts information about the environment (hardware specs, etc.)
+            and data (length, entropy, etc.)
+
+        Returns:
+            returns a float between or including 0 and 1,
+            0 meaning you should not use this model under those conditions and
+            1 meaning these conditions are ideal for this model
+        """
+        pass
 
     def load(self, modelPath: str, *args, **kwargs) -> Union[None, "PipelineInterface"]:
         """
@@ -26,7 +41,7 @@ class PipelineInterface:
             modelpath: Path where the model should be loaded from
 
         Returns:
-        PipelineInterface: Model if load successful, None otherwise
+            PipelineInterface: Model if load successful, None otherwise
         """
         pass
 
@@ -55,7 +70,7 @@ class PipelineInterface:
         """
         pass
 
-    def compare(self, other: Optional[Any] = None, *args, **kwargs) -> bool:
+    def compare(self, *args, **kwargs) -> bool:
         """
         Compare other (model) and pilot models based on their backtest error.
         Args:
@@ -64,23 +79,7 @@ class PipelineInterface:
             bool: True if pilot should replace other, False otherwise
             this should return a comparison object which has a bool expression
         """
-        if not isinstance(other, self.__class__):
-            return True
-        this_score = self.score()
-        other_score = other.score()
-        is_improved = this_score < other_score
-        if is_improved:
-            info(
-                'model improved!'
-                f'\n  stable score: {other_score}'
-                f'\n  pilot  score: {this_score}',
-                color='green')
-        else:
-            debug(
-                f'\nstable score: {other_score}'
-                f'\npilot  score: {this_score}',
-                color='yellow')
-        return is_improved
+        pass
 
     def score(self, *args, **kwargs) -> float:
         """

@@ -10,12 +10,12 @@ from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingRes
 
 
 class ChronosVedaPipeline(PipelineInterface):
-    def __init__(self, useGPU: bool = False, *args, **kwargs):
+    def __init__(self, useGPU: bool = False, **kwargs):
         #ChronosVedaPipeline.set_seed(37) # does not make it deterministic
         hfhome = os.environ.get(
             'HF_HOME', default='/Satori/Neuron/models/huggingface')
         os.makedirs(hfhome, exist_ok=True)
-        device_map = 'cuda' if useGPU else 'cpu'
+        deviceMap = 'cuda' if useGPU else 'cpu'
         self.model = ChronosPipeline.from_pretrained(
             "amazon/chronos-t5-large" if useGPU else "amazon/chronos-t5-small",
             # "amazon/chronos-t5-tiny", # 8M
@@ -24,11 +24,11 @@ class ChronosVedaPipeline(PipelineInterface):
             # "amazon/chronos-t5-base", # 200M
             # "amazon/chronos-t5-large", # 710M
             # 'cpu' for any CPU, 'cuda' for Nvidia GPU, 'mps' for Apple Silicon
-            device_map=device_map,
+            device_map=deviceMap,
             torch_dtype=torch.bfloat16,
             # force_download=True,
         )
-        self.ctx_len = 512  # historical context
+        self.contextLen = 512  # historical context
         #self.model.model.eval() # does not make it deterministic
 
     @staticmethod
@@ -39,16 +39,16 @@ class ChronosVedaPipeline(PipelineInterface):
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-    def fit(self, trainX, trainY, eval_set, verbose):
+    def fit(self, **kwargs) -> TrainingResult:
         ''' online learning '''
-        return TrainingResult(1, self, False)
+        return TrainingResult(1, self)
 
-    def predict(self, data: pd.DataFrame) -> np.ndarray:
+    def predict(self, data: pd.DataFrame, **kwargs) -> np.ndarray:
         data = data.values  # Convert DataFrame to numpy array
         # Squeeze only if the first dimension is 1
         if len(data.shape) > 1 and data.shape[0] == 1:
             data = np.squeeze(data, axis=0)
-        data = data[-self.ctx_len:]  # Use the last `ctx_len` rows
+        data = data[-self.contextLen:]  # Use the last `contextLen` rows
         context = torch.tensor(data)
         #t1_start = time.perf_counter_ns()
         forecast = self.model.predict(

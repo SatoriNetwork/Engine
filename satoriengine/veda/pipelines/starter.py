@@ -6,70 +6,68 @@ from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingRes
 
 class StarterPipeline(PipelineInterface):
 
-    def __init__(self, *args, **kwargs):
+    @staticmethod
+    def condition(*args, **kwargs) -> float:
+        if kwargs.get('dataCount', 0) < 5:
+            return 1.0
+        return 0.0
+
+    def __init__(self, **kwargs):
         self.model = None
 
-    @staticmethod
-    def load(modelPath: str, *args, **kwargs) -> Union[None, "PipelineInterface"]:
+    def load(self, modelPath: str, **kwargs) -> Union[None, "PipelineInterface"]:
         """loads the model model from disk if present"""
 
-    def save(self, modelpath: str, *args, **kwargs) -> bool:
+    def save(self, modelpath: str, **kwargs) -> bool:
         """saves the stable model to disk"""
         return True
 
-    def fit(self, *args, **kwargs) -> TrainingResult:
+    def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         if self.model is None:
-            status, model = StarterPipeline.starterEnginePipeline(
-                kwargs["data"])
+            status, model = StarterPipeline.starterEnginePipeline(data)
             if status == 1:
                 self.model = model
-                return TrainingResult(status, self, False)
+                return TrainingResult(status, self)
         else:
-            return TrainingResult(1, self, True)
+            return TrainingResult(0, self)
 
-    def compare(self, other: Union[PipelineInterface, None] = None, *args, **kwargs) -> bool:
-        """true indicates this model is better than the other model"""
+    def compare(self, other: PipelineInterface, **kwargs) -> bool:
         return True
 
-    def score(self, *args, **kwargs) -> float:
-        pass
+    def score(self, **kwargs) -> float:
+        return 0.0
 
-    def predict(self, *args, **kwargs) -> Union[None, pd.DataFrame]:
+    def predict(self, data, **kwargs) -> Union[None, pd.DataFrame]:
         """prediction without training"""
-        status, predictor_model = StarterPipeline.starterEnginePipeline(
-            kwargs["data"])
+        status, predictorModel = StarterPipeline.starterEnginePipeline(data)
         if status == 1:
-            return predictor_model[0].forecast
+            return predictorModel[0].forecast
         return None
 
     @staticmethod
-    def starterEnginePipeline(starter_dataset: pd.DataFrame):
+    def starterEnginePipeline(starterDataset: pd.DataFrame) -> tuple[int, list]:
         """Starter Engine function for the Satori Engine"""
         result = namedtuple(
             "Result",
-            ["forecast", "backtest_error", "model_name", "unfitted_forecaster"],
-        )
-
+            ["forecast", "backtest_error", "model_name", "unfitted_forecaster"])
         forecast = None
-
-        if len(starter_dataset) == 1:
+        if len(starterDataset) == 0:
+            return 1, [0]
+        elif len(starterDataset) == 1:
             # If dataset has only 1 row, return the same value in the forecast dataframe
-            value = starter_dataset.iloc[0, 1]
-            forecast = pd.DataFrame(
-                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
-                 "pred": [value]}
-            )
-        elif len(starter_dataset) == 2:
-            # If dataset has 2 rows, return their average
-            value = starter_dataset.iloc[:, 1].mean()
-            forecast = pd.DataFrame(
-                {"ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
-                 "pred": [value]}
-            )
-        starter_result = result(
+            value = starterDataset.iloc[0, 1]
+            forecast = pd.DataFrame({
+                "ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
+                "pred": [value]})
+        else:
+            # If dataset has 2 or more rows, return the average of the last 2
+            value = starterDataset.iloc[-2:, 1].mean()
+            forecast = pd.DataFrame({
+                "ds": [pd.Timestamp.now() + pd.Timedelta(days=1)],
+                "pred": [value]})
+        starterResult = result(
             forecast=forecast,
             backtest_error=20,
-            model_name="starter_dataset_model",
-            unfitted_forecaster=None,
-        )
-        return 1, [starter_result]
+            model_name="starterDataset_model",
+            unfitted_forecaster=None)
+        return 1, [starterResult]
