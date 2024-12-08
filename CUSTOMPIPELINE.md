@@ -38,8 +38,8 @@ Example criteria:
 
 ### 2. `load()` and `save()`
 ```python
-def load(self, modelPath: str, **kwargs) -> Union[None, PipelineInterface]
-def save(self, modelpath: str, **kwargs) -> bool
+def load(self, modelPath: str, **kwargs) -> Union[None, PipelineInterface]:
+def save(self, modelpath: str, **kwargs) -> bool:
 ```
 Handle model persistence:
 - `load`: Restore model from disk
