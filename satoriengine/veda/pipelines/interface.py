@@ -16,6 +16,7 @@ class PipelineInterface:
 
     def __init__(self, *args, **kwargs):
         self.model = None
+        self.modelError: float = None
 
     @staticmethod
     def condition(*args, **kwargs) -> float:

@@ -5,11 +5,15 @@ import numpy as np
 import pandas as pd
 import random
 import torch
+from threading import Lock
 from chronos import ChronosPipeline
 from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
 
 
 class ChronosVedaPipeline(PipelineInterface):
+
+    # Class-level lock
+    _model_init_lock = Lock()
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
@@ -18,23 +22,25 @@ class ChronosVedaPipeline(PipelineInterface):
 
 
     def __init__(self, useGPU: bool = False, **kwargs):
+        super().__init__()
         #ChronosVedaPipeline.set_seed(37) # does not make it deterministic
         hfhome = os.environ.get(
             'HF_HOME', default='/Satori/Neuron/models/huggingface')
         os.makedirs(hfhome, exist_ok=True)
         deviceMap = 'cuda' if useGPU else 'cpu'
-        self.model = ChronosPipeline.from_pretrained(
-            "amazon/chronos-t5-large" if useGPU else "amazon/chronos-t5-small",
-            # "amazon/chronos-t5-tiny", # 8M
-            # "amazon/chronos-t5-mini", # 20M
-            # "amazon/chronos-t5-small", # 46M
-            # "amazon/chronos-t5-base", # 200M
-            # "amazon/chronos-t5-large", # 710M
-            # 'cpu' for any CPU, 'cuda' for Nvidia GPU, 'mps' for Apple Silicon
-            device_map=deviceMap,
-            torch_dtype=torch.bfloat16,
-            # force_download=True,
-        )
+        with ChronosVedaPipeline._model_init_lock:
+            self.model = ChronosPipeline.from_pretrained(
+                "amazon/chronos-t5-large" if useGPU else "amazon/chronos-t5-small",
+                # "amazon/chronos-t5-tiny", # 8M
+                # "amazon/chronos-t5-mini", # 20M
+                # "amazon/chronos-t5-small", # 46M
+                # "amazon/chronos-t5-base", # 200M
+                # "amazon/chronos-t5-large", # 710M
+                # 'cpu' for any CPU, 'cuda' for Nvidia GPU, 'mps' for Apple Silicon
+                device_map=deviceMap,
+                torch_dtype=torch.bfloat16,
+                # force_download=True,
+            )
         self.contextLen = 512  # historical context
         #self.model.model.eval() # does not make it deterministic
 

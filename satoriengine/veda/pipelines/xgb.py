@@ -20,8 +20,11 @@ class XgbPipeline(PipelineInterface):
         return 0.0
 
     def __init__(self, **kwargs):
+        super().__init__()
         self.model: XGBRegressor = None
+        self.modelError: float = None
         self.hyperparameters: Union[dict, None] = None
+        self.dataset: pd.DataFrame = None
         self.trainX: pd.DataFrame = None
         self.testX: pd.DataFrame = None
         self.trainY: np.ndarray = None
@@ -29,7 +32,6 @@ class XgbPipeline(PipelineInterface):
         self.fullX: pd.DataFrame = None
         self.fullY: pd.Series = None
         self.split: float = None
-        self.modelError: float = None
         self.rng = np.random.default_rng(37)
 
     def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
@@ -118,8 +120,10 @@ class XgbPipeline(PipelineInterface):
             verbose=False)
         return TrainingResult(1, self)
 
-    def predict(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    def predict(self, data: pd.DataFrame, **kwargs) -> Union[pd.DataFrame, None]:
         """Make predictions using the stable model"""
+        if self.model is None or self.dataset is None:
+            return None
         _, samplingFrequency = self._manageData(data)
         self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
         self.fullY = self.dataset['value']

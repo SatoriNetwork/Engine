@@ -61,7 +61,7 @@ class Engine:
                 predictionProduced=self.predictionProduced)
             self.streamModels[stream.streamId].choosePipeline(inplace=True)
             self.streamModels[stream.streamId].run_forever()
-            break  # only one stream for testing
+            #break  # only one stream for testing
 
     def handleNewObservation(self, observation: Observation):
         # spin off a new thread to handle the new observation
@@ -180,18 +180,11 @@ class StreamModel:
                         debug("Deleted failed model file", color="teal")
                     except Exception as e:
                         error(f"Failed to delete model file: {str(e)}")
-                self.stable = None
-                pipelineClass = self.choosePipeline()
-                rollbackModel = pipelineClass()
+                backupModel = self.defaultPipelines[-1]()
                 try:
-                    trainingResult = rollbackModel.fit(data=self.data)
-                    if trainingResult.status == 1:
-                        debug(
-                            f'New model trained: '
-                            f'{trainingResult.model[0].model_name}',
-                            color="teal")
-                        self.stable = copy.deepcopy(rollbackModel)
-                        self.producePrediction(self.stable)
+                    trainingResult = backupModel.fit(data=self.data)
+                    if abs(trainingResult.status) == 1:
+                        self.producePrediction(backupModel)
                     else:
                         error(
                             f"Failed to train alternative model (status: {trainingResult.status})")

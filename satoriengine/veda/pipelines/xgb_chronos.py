@@ -21,13 +21,16 @@ class XgbChronosPipeline(PipelineInterface):
 
     @staticmethod
     def condition(*args, **kwargs) -> float:
-        if 5 <= len(kwargs.get('data', [])) < 1_000:
+        if 20 <= len(kwargs.get('data', [])) < 1_000:
             return 1.0
         return 0.0
 
     def __init__(self, uid: str = None, modelPath: str = None, **kwargs):
+        super().__init__()
         self.uid = uid
         self.model: XGBRegressor = None
+        self.modelError: float = None
+        self.modelPath = modelPath
         self.chronos: Union[ChronosVedaPipeline, None] = ChronosVedaPipeline()
         self.dataset: pd.DataFrame = None
         self.hyperparameters: Union[dict, None] = None
@@ -38,8 +41,6 @@ class XgbChronosPipeline(PipelineInterface):
         self.fullX: pd.DataFrame = None
         self.fullY: pd.Series = None
         self.split: float = None
-        self.modelError: float = None
-        self.modelPath = modelPath
         self.rng = np.random.default_rng(37)
 
     @staticmethod
@@ -48,7 +49,7 @@ class XgbChronosPipeline(PipelineInterface):
         try:
             return joblib.load(modelPath)
         except Exception as e:
-            debug(f"Error Loading Model File : {e}", print=True)
+            debug(f"Unable to load model file, creating a new one: {e}", print=True)
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
             return None
@@ -73,7 +74,6 @@ class XgbChronosPipeline(PipelineInterface):
         **kwargs,
     ) -> bool:
         """saves the stable model to disk"""
-        print('saving model to:', modelPath, dataset, len(dataset[~dataset['chronos'].isna()]))
         try:
             os.makedirs(os.path.dirname(modelPath), exist_ok=True)
             joblib.dump({
@@ -156,8 +156,10 @@ class XgbChronosPipeline(PipelineInterface):
             verbose=False)
         return TrainingResult(1, self)
 
-    def predict(self, data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    def predict(self, data: pd.DataFrame, **kwargs) -> Union[pd.DataFrame, None]:
         """Make predictions using the stable model"""
+        if self.model is None or self.dataset is None:
+            return None
         self._manageData(data, chronosOnLast=True)
         self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
         self.fullY = self.dataset['value']
@@ -265,7 +267,10 @@ class XgbChronosPipeline(PipelineInterface):
                 missingRows = data[~data.index.isin(self.dataset.index)]
                 # Append only the missing rows to self.dataset
                 self.dataset = pd.concat([self.dataset, missingRows])
-            return self.dataset.drop_duplicates(subset='value', keep='first')
+            potential = self.dataset.drop_duplicates(subset='value', keep='first')
+            if len(potential) >= 20:
+                return potential
+            return self.dataset
 
         def addPercentageChange(df: pd.DataFrame) -> pd.DataFrame:
 

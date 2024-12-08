@@ -37,15 +37,16 @@ class SKPipeline(PipelineInterface):
 
         data = kwargs.get('data')
         if data is None:
-            if kwargs.get('cpu', 0) > 4 and len(kwargs.get('data', [])) < 10_000:
+            if kwargs.get('cpu', 0) > 4 and 1000 < len(kwargs.get('data', [])) < 10_000:
                 return 1.0
             return 0.0
         regularDataCount = calculateRegularDataCount(data, 'date_time')
-        if kwargs.get('cpu', 0) > 4 and regularDataCount < 10_000:
+        if kwargs.get('cpu', 0) > 4 and 1000 < regularDataCount < 10_000:
             return 1.0
         return 0.0
 
     def __init__(self, **kwargs):
+        super().__init__()
         self.model: Union[List, None] = None
         self.modelError: float = None
 
