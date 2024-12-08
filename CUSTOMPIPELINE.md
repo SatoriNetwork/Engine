@@ -6,8 +6,8 @@ This guide explains how to create your own custom model pipeline by implementing
 - [Overview](#overview)
 - [Interface Requirements](#interface-requirements)
 - [Implementation Guide](#implementation-guide)
-- [Example Implementation](#example-implementation)
-- [Best Practices](#best-practices)
+- [Testing Practices](#testing-practices)
+- [Helper Data Processing Function](#helper-data-processing-function)
 
 ## Overview
 
@@ -51,7 +51,7 @@ Handle model persistence:
 def fit(self, *args, **kwargs) -> TrainingResult:
 ```
 Trains the model and returns a `TrainingResult` object containing:
-- Training status ( 1 - success/ other - failure)
+- Training status ( 1 - Success / other - Failure)
 - Trained model instance
 - Optional model error metrics
 
@@ -123,13 +123,13 @@ class MyCustomPipeline(PipelineInterface):
         return df.drop('date_time', axis=1)
 ```
 
-## Test Practices
+## Testing Practices
 
    - Test with various data scenarios
    - Validate model persistence
    - Check error handling
 
-## Helper Functions
+## Helper Data Processing Function
 
 ### Data Processing Made Easy
 The library provides a helpful `process_data` function that handles most common data processing tasks:
@@ -137,17 +137,17 @@ The library provides a helpful `process_data` function that handles most common 
 ```python
 from satoriengine.veda.process import process_data
 
-# Use in your pipeline
+# Use in your pipeline, data being a dataframe with atleast 3 rows
 processed = process_data(data)
 ```
 
 What `process_data` does for you:
 - Handles missing data automatically
-- Divides datasets appropriately for training and testing
+- Divides datasets appropriately for training, validation and testing
 - Creates useful dataset features
 - Calculates sampling frequency of your data
-- Determines number of forecasting steps
-- Provides other helpful dataset statistics
+- Determines number of forecasting steps, backtest steps.
+- Provides other helpful dataset statistics ( check out [process.py](satoriengine/veda/process.py) to know more )
 
 Example usage in a pipeline:
 ```python
@@ -159,7 +159,7 @@ def fit(self, data: pd.DataFrame, **kwargs):
     self.dataset = processed.dataset  # Processed dataset
     self.dataset_withfeatures = processed.dataset_withfeatures
     self.sampling_frequency = processed.sampling_frequency  # Data frequency
-    self.forecasting_steps = processed.forecasting_steps  # How many steps to forecast
+    # and others
     
     # Continue with your model training...
 ```
@@ -168,4 +168,4 @@ This saves you from having to write your own data preprocessing code and ensures
 
 ## Examples
 
-For examples and reference implementations, check out [Link Text](https://github.com/SatoriNetwork/Engine/tree/meta/satoriengine/veda/pipelines).
+For examples and reference implementations, check out [here](satoriengine/veda/pipelines).
