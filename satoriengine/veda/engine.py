@@ -1,5 +1,5 @@
 from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline, XgbChronosPipeline
-from satoriengine.veda.data import StreamForecast
+from satoriengine.veda.data import StreamForecast, validate_dataframe
 from satorilib.logging import INFO, setup, debug, info, warning, error
 from satorilib.disk.filetypes.csv import CSVManager
 from satorilib.concepts import Stream, StreamId, Observation
@@ -210,10 +210,17 @@ class StreamModel:
 
     def loadData(self) -> pd.DataFrame:
         try:
-            return pd.read_csv(
+            df = pd.read_csv(
                 self.data_path(),
                 names=["date_time", "value", "id"],
                 header=None)
+            if validate_dataframe(df):
+                debug("valid", color="cyan")
+                return df
+            else:
+                error("Corrupted data, Erasing data file")
+                os.remove(self.data_path())
+                return pd.DataFrame(columns=["date_time", "value", "id"])
         except FileNotFoundError:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
