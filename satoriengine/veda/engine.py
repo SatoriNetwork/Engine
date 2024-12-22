@@ -1,5 +1,5 @@
 from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline, XgbChronosPipeline
-from satoriengine.veda.data import StreamForecast
+from satoriengine.veda.data import StreamForecast, validate_dataframe, validate_single_entry
 from satorilib.logging import INFO, setup, debug, info, warning, error
 from satorilib.disk.filetypes.csv import CSVManager
 from satorilib.concepts import Stream, StreamId, Observation
@@ -86,12 +86,13 @@ class Engine:
             if streamModel.thread is None or not streamModel.thread.is_alive():
                 streamModel.choosePipeline(inplace=True)
                 streamModel.run_forever()
-            if streamModel is not None and len(streamModel.data) > 1:
+            # if streamModel is not None and len(streamModel.data) > 1: intended for old starter pipeline
+            if streamModel is not None:
                 info(
                     f'new observation, making prediction using {streamModel.pipeline.__name__}', color='blue')
                 streamModel.producePrediction()
-            else:
-                warning(f"new observation, no model found for stream {observation.streamId}")
+            # else: not necessary
+            #     warning(f"new observation, no model found for stream {observation.streamId}")
             self.resume()
 
     def handleError(self, error):
@@ -133,15 +134,18 @@ class StreamModel:
     def handleNewObservation(self, observation: Observation):
         """extract the data and save it to self.data"""
         parsedData = json.loads(observation.raw)
-        self.data = pd.concat(
-            [
-                self.data,
-                pd.DataFrame({
-                    "date_time": [str(parsedData["time"])],
-                    "value": [float(parsedData["data"])],
-                    "id": [str(parsedData["hash"])]}),
-            ],
-            ignore_index=True)
+        if validate_single_entry(parsedData["time"], parsedData["data"]):
+            self.data = pd.concat(
+                [
+                    self.data,
+                    pd.DataFrame({
+                        "date_time": [str(parsedData["time"])],
+                        "value": [float(parsedData["data"])],
+                        "id": [str(parsedData["hash"])]}),
+                ],
+                ignore_index=True)
+        else:
+            error("Row not due to corrupt observation")
 
     def producePrediction(self, updatedModel=None):
         """
@@ -210,10 +214,17 @@ class StreamModel:
 
     def loadData(self) -> pd.DataFrame:
         try:
-            return pd.read_csv(
+            df = pd.read_csv(
                 self.data_path(),
                 names=["date_time", "value", "id"],
                 header=None)
+            if validate_dataframe(df):
+                debug("valid", color="cyan")
+                return df
+            else:
+                error("Corrupted data, Erasing data file")
+                os.remove(self.data_path())
+                return pd.DataFrame(columns=["date_time", "value", "id"])
         except FileNotFoundError:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
