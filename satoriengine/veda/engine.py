@@ -135,6 +135,7 @@ class StreamModel:
         """extract the data and save it to self.data"""
         parsedData = json.loads(observation.raw)
         if validate_single_entry(parsedData["time"], parsedData["data"]):
+            debug("valid single entry", color="cyan")
             self.data = pd.concat(
                 [
                     self.data,
@@ -145,7 +146,7 @@ class StreamModel:
                 ],
                 ignore_index=True)
         else:
-            error("Row not due to corrupt observation")
+            error("Row not added due to corrupt observation")
 
     def producePrediction(self, updatedModel=None):
         """
@@ -219,7 +220,7 @@ class StreamModel:
                 names=["date_time", "value", "id"],
                 header=None)
             if validate_dataframe(df):
-                debug("valid", color="cyan")
+                debug("valid dataframe", color="cyan")
                 return df
             else:
                 error("Corrupted data, Erasing data file")
