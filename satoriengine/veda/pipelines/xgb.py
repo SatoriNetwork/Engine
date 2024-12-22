@@ -60,7 +60,6 @@ class XgbPipeline(PipelineInterface):
         except Exception as e:
             warning(f"Error saving model: {e}")
             return False
-        
 
     def compare(self, other: Union[PipelineInterface, None] = None, **kwargs) -> bool:
         """
@@ -122,9 +121,11 @@ class XgbPipeline(PipelineInterface):
 
     def predict(self, data: pd.DataFrame, **kwargs) -> Union[pd.DataFrame, None]:
         """Make predictions using the stable model"""
-        if self.model is None or self.dataset is None:
+        if self.model is None:
             return None
         _, samplingFrequency = self._manageData(data)
+        if self.dataset is None:
+            return None
         self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
         self.fullY = self.dataset['value']
         self.model.fit(self.fullX, self.fullY, verbose=False)

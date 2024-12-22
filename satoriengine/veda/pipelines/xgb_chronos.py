@@ -49,7 +49,7 @@ class XgbChronosPipeline(PipelineInterface):
         try:
             return joblib.load(modelPath)
         except Exception as e:
-            debug(f"Unable to load model file, creating a new one: {e}", print=True)
+            debug(f"unable to load model file, creating a new one: {e}", print=True)
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
             return None
@@ -158,7 +158,9 @@ class XgbChronosPipeline(PipelineInterface):
 
     def predict(self, data: pd.DataFrame, **kwargs) -> Union[pd.DataFrame, None]:
         """Make predictions using the stable model"""
-        if self.model is None or self.dataset is None:
+        if self.model is None:
+            return None
+        if self.dataset is None:
             return None
         self._manageData(data, chronosOnLast=True)
         self.fullX = self._prepareTimeFeatures(self.dataset.index.values)

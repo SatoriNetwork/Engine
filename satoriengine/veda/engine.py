@@ -76,7 +76,7 @@ class Engine:
         for thread in self.threads:
             if not thread.is_alive():
                 self.threads.remove(thread)
-        debug(f'prediction thread count: {len(self.threads)}', color='teal')
+        debug(f'prediction thread count: {len(self.threads)}')
 
     def handleNewObservationThread(self, observation: Observation):
         streamModel = self.streamModels.get(observation.streamId)
@@ -87,11 +87,11 @@ class Engine:
                 streamModel.choosePipeline(inplace=True)
                 streamModel.run_forever()
             if streamModel is not None and len(streamModel.data) > 1:
-                debug(
-                    f'Making prediction based on new observation using {streamModel.pipeline.__name__}', color='teal')
+                info(
+                    f'new observation, making prediction using {streamModel.pipeline.__name__}', color='blue')
                 streamModel.producePrediction()
             else:
-                info(f"No model found for stream {observation.streamId}")
+                warning(f"new observation, no model found for stream {observation.streamId}")
             self.resume()
 
     def handleError(self, error):
@@ -109,7 +109,7 @@ class StreamModel:
         predictionProduced: BehaviorSubject,
     ):
         self.cpu = getProcessorCount()
-        self.preferredPipelines: list[PipelineInterface] = [StarterPipeline, XgbPipeline, XgbChronosPipeline, SKPipeline]
+        self.preferredPipelines: list[PipelineInterface] = [StarterPipeline, XgbPipeline, XgbChronosPipeline]# SKPipeline #model[0] issue
         self.defaultPipelines: list[PipelineInterface] = [XgbPipeline, XgbPipeline, StarterPipeline]
         self.failedPipelines = []
         self.thread: threading.Thread = None
@@ -122,7 +122,7 @@ class StreamModel:
         self.pilot.load(self.modelPath())
         self.stable: PipelineInterface = copy.deepcopy(self.pilot)
         self.paused: bool = False
-        debug(f'StreamModel {generatePathId(streamId=self.streamId)} initialized with {self.pipeline.__name__}', color='teal')
+        debug(f'AI Engine: stream id {generatePathId(streamId=self.streamId)} using {self.pipeline.__name__}', color='teal')
 
     def pause(self):
         self.paused = True
@@ -264,9 +264,10 @@ class StreamModel:
                 not isinstance(self.pilot, pipeline))
         ):
             info(
-                f'Switching from {self.pipeline.__name__} '
+                f'AI Engine: stream id {generatePathId(streamId=self.streamId)} '
+                f'switching from {self.pipeline.__name__} '
                 f'to {pipeline.__name__} on {self.streamId}',
-                color='blue')
+                color='teal')
             self.pipeline = pipeline
             self.pilot = pipeline(uid=self.streamId)
             self.pilot.load(self.modelPath())
@@ -284,18 +285,18 @@ class StreamModel:
                 time.sleep(10)
                 continue
             self.choosePipeline(inplace=True)
-            trainingResult = self.pilot.fit(data=self.data)
+            trainingResult = self.pilot.fit(data=self.data, stable=self.stable)
             if trainingResult.status == 1:
                 if self.pilot.compare(self.stable):
                     if self.pilot.save(self.modelPath()):
                         self.stable = copy.deepcopy(self.pilot)
                         info(
-                            "Stable Model Updated for stream:",
+                            "stable model updated for stream:",
                             self.streamId.cleanId,
                             print=True)
                         self.producePrediction(self.stable)
             else:
-                debug(f'Model Training Failed on {self.streamId} waiting 10 minutes to retry')
+                debug(f'model training failed on {self.streamId} waiting 10 minutes to retry')
                 self.failedPipelines.append(self.pilot)
                 time.sleep(60*10)
 
