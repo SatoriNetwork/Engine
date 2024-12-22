@@ -1,5 +1,6 @@
 # file for data related functions
 import pandas as pd
+from typing import Any
 
 def validate_dataframe(df: pd.DataFrame) -> bool:
     try:
@@ -13,5 +14,14 @@ def validate_dataframe(df: pd.DataFrame) -> bool:
             return False
         return True
         
+    except Exception as e:
+        return False
+    
+
+def validate_single_entry(date_time: Any, value: Any) -> bool:
+    try:
+        datetime_valid = not pd.isna(pd.to_datetime(date_time, errors='coerce'))
+        value_valid = not pd.isna(pd.to_numeric(value, errors='coerce'))
+        return datetime_valid and value_valid
     except Exception as e:
         return False
