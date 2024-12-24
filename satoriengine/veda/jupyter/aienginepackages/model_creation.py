@@ -919,7 +919,6 @@ def model_create_train_test_and_predict(
             unfitted_forecaster = copy.deepcopy(final_forecaster)
 
 
-
             if len(selected_exog) == 0:
                 final_forecaster.fit(
                     y=dataset_selected_features.loc[:end_validation, value]
@@ -983,7 +982,6 @@ def model_create_train_test_and_predict(
             )
 
             print(5)
-
         return ForecastModelResult(
             model_name=model_name,
             sampling_freq=sampling_freq,
