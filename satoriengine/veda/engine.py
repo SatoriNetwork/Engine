@@ -86,13 +86,10 @@ class Engine:
             if streamModel.thread is None or not streamModel.thread.is_alive():
                 streamModel.choosePipeline(inplace=True)
                 streamModel.run_forever()
-            # if streamModel is not None and len(streamModel.data) > 1: intended for old starter pipeline
             if streamModel is not None:
                 info(
                     f'new observation, making prediction using {streamModel.pipeline.__name__}', color='blue')
                 streamModel.producePrediction()
-            # else: not necessary
-            #     warning(f"new observation, no model found for stream {observation.streamId}")
             self.resume()
 
     def handleError(self, error):
@@ -135,7 +132,6 @@ class StreamModel:
         """extract the data and save it to self.data"""
         parsedData = json.loads(observation.raw)
         if validate_single_entry(parsedData["time"], parsedData["data"]):
-            # debug("valid single entry", color="cyan")
             self.data = pd.concat(
                 [
                     self.data,
@@ -215,19 +211,10 @@ class StreamModel:
 
     def loadData(self) -> pd.DataFrame:
         try:
-            df = pd.read_csv(
+            return cleanse_dataframe(pd.read_csv(
                 self.data_path(),
                 names=["date_time", "value", "id"],
-                header=None)
-            # if validate_dataframe(df):
-            #     debug("valid dataframe", color="cyan")
-            #     return df
-            # else:
-            #     error("Corrupted data, Erasing data file")
-            #     os.remove(self.data_path())
-            #     return pd.DataFrame(columns=["date_time", "value", "id"])
-            # debug("Cleaned Dataframe : ", cleanse_dataframe(df), color="teal")
-            return cleanse_dataframe(df)
+                header=None))
         except FileNotFoundError:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
