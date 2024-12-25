@@ -1,5 +1,5 @@
 from satoriengine.veda.pipelines import PipelineInterface, SKPipeline, StarterPipeline, XgbPipeline, XgbChronosPipeline
-from satoriengine.veda.data import StreamForecast, validate_dataframe, validate_single_entry
+from satoriengine.veda.data import StreamForecast, cleanse_dataframe, validate_single_entry
 from satorilib.logging import INFO, setup, debug, info, warning, error
 from satorilib.disk.filetypes.csv import CSVManager
 from satorilib.concepts import Stream, StreamId, Observation
@@ -135,7 +135,7 @@ class StreamModel:
         """extract the data and save it to self.data"""
         parsedData = json.loads(observation.raw)
         if validate_single_entry(parsedData["time"], parsedData["data"]):
-            debug("valid single entry", color="cyan")
+            # debug("valid single entry", color="cyan")
             self.data = pd.concat(
                 [
                     self.data,
@@ -219,13 +219,15 @@ class StreamModel:
                 self.data_path(),
                 names=["date_time", "value", "id"],
                 header=None)
-            if validate_dataframe(df):
-                debug("valid dataframe", color="cyan")
-                return df
-            else:
-                error("Corrupted data, Erasing data file")
-                os.remove(self.data_path())
-                return pd.DataFrame(columns=["date_time", "value", "id"])
+            # if validate_dataframe(df):
+            #     debug("valid dataframe", color="cyan")
+            #     return df
+            # else:
+            #     error("Corrupted data, Erasing data file")
+            #     os.remove(self.data_path())
+            #     return pd.DataFrame(columns=["date_time", "value", "id"])
+            # debug("Cleaned Dataframe : ", cleanse_dataframe(df), color="teal")
+            return cleanse_dataframe(df)
         except FileNotFoundError:
             return pd.DataFrame(columns=["date_time", "value", "id"])
 
