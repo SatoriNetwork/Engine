@@ -147,7 +147,7 @@ What `process_data` does for you:
 - Creates useful dataset features
 - Calculates sampling frequency of your data
 - Determines number of forecasting steps, backtest steps.
-- Provides other helpful dataset statistics ( check out [process.py](satoriengine/veda/process.py) to know more )
+- Provides other helpful dataset statistics ( check out [process.py](satoriengine/veda/pipelines/sktime/process.py) to know more )
 
 Example usage in a pipeline:
 ```python
