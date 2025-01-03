@@ -7,7 +7,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
 from satorilib.logging import info, debug, warning
-from satoriengine.veda.pipelines.sktime.process import process_data
+from satoriengine.veda.pipelines.xgboost.process import process_data
 from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
 
 
