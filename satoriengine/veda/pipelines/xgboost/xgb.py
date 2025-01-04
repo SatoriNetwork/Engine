@@ -7,7 +7,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
 from satorilib.logging import info, debug, warning
-from satoriengine.veda.pipelines.xgboost.process import process_data
+from satoriengine.veda.pipelines.xgboost.preprocess import xgbDataPreprocess, _prepareTimeFeatures
 from satoriengine.veda.pipelines.interface import PipelineInterface, TrainingResult
 
 
@@ -108,8 +108,8 @@ class XgbPipeline(PipelineInterface):
             test_size=self.split or 0.2,
             shuffle=False,
             random_state=37)
-        self.trainX = self._prepareTimeFeatures(preTrainX)
-        self.testX = self._prepareTimeFeatures(preTestX)
+        self.trainX = _prepareTimeFeatures(preTrainX)
+        self.testX = _prepareTimeFeatures(preTestX)
         self.hyperparameters = self._mutateParams(
             prevParams=self.hyperparameters,
             rng=self.rng)
@@ -131,7 +131,7 @@ class XgbPipeline(PipelineInterface):
         _, samplingFrequency = self._manageData(data)
         if self.dataset is None:
             return None
-        self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
+        self.fullX = _prepareTimeFeatures(self.dataset.index.values)
         self.fullY = self.dataset['value']
         self.model.fit(self.fullX, self.fullY, verbose=False)
         lastDate = pd.Timestamp(self.dataset.index[-1])
@@ -153,7 +153,7 @@ class XgbPipeline(PipelineInterface):
             start=pd.Timestamp(lastDate) + pd.Timedelta(sf),
             periods=periods,
             freq=sf)
-        futureFeatures = self._prepareTimeFeatures(futureDates)
+        futureFeatures = _prepareTimeFeatures(futureDates)
         predictions = model.predict(futureFeatures)
         results = pd.DataFrame({'date_time': futureDates, 'pred': predictions})
         return results
@@ -167,7 +167,7 @@ class XgbPipeline(PipelineInterface):
         '''
 
         def updateData(data: pd.DataFrame) -> pd.DataFrame:
-            procData = process_data(data, quick_start=False)
+            procData = xgbDataPreprocess(data)
             procData.dataset.drop(['id'], axis=1, inplace=True)
             # incrementally add missing processed data rows to the self.dataset
             if self.dataset is None:
@@ -192,18 +192,7 @@ class XgbPipeline(PipelineInterface):
         self.dataset, samplingFrequency = updateData(data)
         self.dataset = addPercentageChange(self.dataset)
         return self.dataset, samplingFrequency
-
-
-    @staticmethod
-    def _prepareTimeFeatures(dates: np.ndarray) -> pd.DataFrame:
-        """Convert datetime series into numeric features for XGBoost"""
-        df = pd.DataFrame({'date_time': pd.to_datetime(dates)})
-        df['hour'] = df['date_time'].dt.hour
-        df['day'] = df['date_time'].dt.day
-        df['month'] = df['date_time'].dt.month
-        df['year'] = df['date_time'].dt.year
-        df['day_of_week'] = df['date_time'].dt.dayofweek
-        return df.drop('date_time', axis=1)
+    
 
     @staticmethod
     def paramBounds() -> dict:
