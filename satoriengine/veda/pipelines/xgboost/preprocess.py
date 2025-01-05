@@ -142,11 +142,11 @@ def xgbDataPreprocess(data: pd.DataFrame) -> XgbProcessedData:
     dataset = dataset.asfreq(sampling_frequency, method="nearest")
     return XgbProcessedData(dataset, sampling_frequency)
 
-def _prepareTimeFeatures(dates: np.ndarray) -> pd.DataFrame:
-        df = pd.DataFrame({'date_time': pd.to_datetime(dates)})
-        df['hour'] = df['date_time'].dt.hour
-        df['day'] = df['date_time'].dt.day
-        df['month'] = df['date_time'].dt.month
-        df['year'] = df['date_time'].dt.year
-        df['day_of_week'] = df['date_time'].dt.dayofweek
-        return df.drop('date_time', axis=1)
+def _prepareTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
+        """Convert datetime series into numeric features for XGBoost"""
+        df['hour'] = df.index.hour
+        df['day'] = df.index.day
+        df['month'] = df.index.month
+        df['year'] = df.index.year
+        df['day_of_week'] = df.index.dayofweek
+        return df

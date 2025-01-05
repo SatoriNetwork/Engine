@@ -99,17 +99,19 @@ class XgbPipeline(PipelineInterface):
     def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         """ Train a new model """
         _, _ = self._manageData(data)
+        x = self.dataset.iloc[:-1, :-1]
+        y = self.dataset.iloc[:-1, -1]
         # todo: get ready to combine features from different sources (merge)
         # todo: keep a running dataset and update incrementally w/ process_data
         # todo: linear, if not fractal, interpolation
-        preTrainX, preTestX, self.trainY, self.testY = train_test_split(
-            self.dataset.index.values,
-            self.dataset['value'],
+        self.trainX, self.testX, self.trainY, self.testY = train_test_split(
+            x,
+            y,
             test_size=self.split or 0.2,
             shuffle=False,
             random_state=37)
-        self.trainX = _prepareTimeFeatures(preTrainX)
-        self.testX = _prepareTimeFeatures(preTestX)
+        self.trainX = self.trainX.reset_index(drop=True)
+        self.testX = self.testX.reset_index(drop=True)
         self.hyperparameters = self._mutateParams(
             prevParams=self.hyperparameters,
             rng=self.rng)
@@ -131,32 +133,14 @@ class XgbPipeline(PipelineInterface):
         _, samplingFrequency = self._manageData(data)
         if self.dataset is None:
             return None
-        self.fullX = _prepareTimeFeatures(self.dataset.index.values)
-        self.fullY = self.dataset['value']
-        self.model.fit(self.fullX, self.fullY, verbose=False)
-        lastDate = pd.Timestamp(self.dataset.index[-1])
-        futurePredictions = self._predictFuture(
-            self.model,
-            lastDate,
-            samplingFrequency)
-        return futurePredictions
-
-    def _predictFuture(
-        self,
-        model: XGBRegressor,
-        lastDate: pd.Timestamp,
-        sf: str = 'H',
-        periods: int = 168,
-    ) -> pd.DataFrame:
-        """Generate predictions for future periods"""
+        featureSet = self.dataset.iloc[[-1], :-1] 
+        prediction = self.model.predict(featureSet)
         futureDates = pd.date_range(
-            start=pd.Timestamp(lastDate) + pd.Timedelta(sf),
-            periods=periods,
-            freq=sf)
-        futureFeatures = _prepareTimeFeatures(futureDates)
-        predictions = model.predict(futureFeatures)
-        results = pd.DataFrame({'date_time': futureDates, 'pred': predictions})
-        return results
+            start=pd.Timestamp(self.dataset.index[-1]) + pd.Timedelta(samplingFrequency),
+            periods=1,
+            freq=samplingFrequency)
+        result_df = pd.DataFrame({'date_time': futureDates, 'pred': prediction})
+        return result_df
 
     def _manageData(self, data: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         '''
@@ -172,7 +156,6 @@ class XgbPipeline(PipelineInterface):
             # incrementally add missing processed data rows to the self.dataset
             if self.dataset is None:
                 self.dataset = procData.dataset
-                self.dataset['chronos'] = np.nan
             else:
                 # Identify rows in procData.dataset not present in self.dataset
                 missingRows = procData.dataset[~procData.dataset.index.isin(self.dataset.index)]
@@ -190,7 +173,9 @@ class XgbPipeline(PipelineInterface):
             return df
 
         self.dataset, samplingFrequency = updateData(data)
+        self.dataset = _prepareTimeFeatures(self.dataset)
         self.dataset = addPercentageChange(self.dataset)
+        self.dataset['tomorrow'] = self.dataset['value'].shift(-1)
         return self.dataset, samplingFrequency
     
 
