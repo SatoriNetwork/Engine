@@ -42,8 +42,6 @@ class XgbChronosPipeline(PipelineInterface):
         self.testX: pd.DataFrame = None
         self.trainY: np.ndarray = None
         self.testY: np.ndarray = None
-        self.fullX: pd.DataFrame = None
-        self.fullY: pd.Series = None
         self.split: float = None
         self.rng = np.random.default_rng(37)
 
@@ -138,14 +136,16 @@ class XgbChronosPipeline(PipelineInterface):
     def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         """ Train a new model """
         self._manageData(data)
+        x = self.dataset.iloc[:-1, :-1]
+        y = self.dataset.iloc[:-1, -1]
         pre_trainX, pre_testX, self.trainY, self.testY = train_test_split(
-            self.dataset.index.values,
-            self.dataset['value'],
+            x,
+            y,
             test_size=self.split or 0.2,
             shuffle=False,
             random_state=37)
-        self.trainX = self._prepareTimeFeatures(pre_trainX)
-        self.testX = self._prepareTimeFeatures(pre_testX)
+        self.trainX = pre_trainX.reset_index(drop=True)
+        self.testX = pre_testX.reset_index(drop=True)
         self.hyperparameters = self._mutateParams(
             prevParams=self.hyperparameters,
             rng=self.rng)
@@ -167,13 +167,15 @@ class XgbChronosPipeline(PipelineInterface):
         if self.dataset is None:
             return None
         self._manageData(data, chronosOnLast=True)
-        self.fullX = self._prepareTimeFeatures(self.dataset.index.values)
-        self.fullY = self.dataset['value']
-        self.model.fit(self.fullX, self.fullY, verbose=False)
-        lastDate = pd.Timestamp(self.dataset.index[-1])
+        featureSet = self.dataset.iloc[[-1], :-1]
+        prediction = self.model.predict(featureSet)
         frequency = self._getSamplingFrequency(self.dataset)
-        futurePredictions = self._predictFuture(self.model, lastDate, frequency)
-        return futurePredictions
+        futureDates = pd.date_range(
+            start=pd.Timestamp(self.dataset.index[-1]) + pd.Timedelta(frequency),
+            periods=1,
+            freq=frequency)
+        result_df = pd.DataFrame({'date_time': futureDates, 'pred': prediction})
+        return result_df
 
     def _setModelPath(self, modelPath: str = None) -> str:
         self.modelPath = self.modelPath or modelPath
@@ -197,23 +199,6 @@ class XgbChronosPipeline(PipelineInterface):
                 modelError=saved['modelError'],
                 dataset=self.dataset,
                 modelPath=other.modelPath)
-
-    def _predictFuture(
-        self,
-        model: XGBRegressor,
-        lastDate: pd.Timestamp,
-        sf: str = 'H',
-        periods: int = 168,
-    ) -> pd.DataFrame:
-        """Generate predictions for future periods"""
-        futureDates = pd.date_range(
-            start=pd.Timestamp(lastDate) + pd.Timedelta(sf),
-            periods=periods,
-            freq=sf)
-        futureFeatures = self._prepareTimeFeatures(futureDates)
-        predictions = model.predict(futureFeatures)
-        results = pd.DataFrame({'date_time': futureDates, 'pred': predictions})
-        return results
 
     def _getSamplingFrequency(self, dataset: pd.DataFrame):
 
@@ -273,9 +258,9 @@ class XgbChronosPipeline(PipelineInterface):
                 missingRows = data[~data.index.isin(self.dataset.index)]
                 # Append only the missing rows to self.dataset
                 self.dataset = pd.concat([self.dataset, missingRows])
-            potential = self.dataset.drop_duplicates(subset='value', keep='first')
-            if len(potential) >= 20:
-                return potential
+            # potential = self.dataset.drop_duplicates(subset='value', keep='first')
+            # if len(potential) >= 20:
+            #     return potential
             return self.dataset
 
         def addPercentageChange(df: pd.DataFrame) -> pd.DataFrame:
@@ -294,20 +279,17 @@ class XgbChronosPipeline(PipelineInterface):
             # now look at the self.dataset and where the chronos column is empty run the chronos prediction for it, filling the nan column at that row:
             # Ensure the dataset is sorted by timestamp (index)
             df.sort_index(inplace=True)
-            if chronosOnLast:
-                # just do the last row if choronos column is empty
-                if df['chronos'].iloc[-1] is np.nan:
-                    historicalData = df.iloc[:-1]
-                    if not historicalData.empty:
-                        df.at[df.index[-1], 'chronos'] = self.chronos.predict(data=historicalData)
-                return df
             # Identify rows where the 'chronos' column is NaN - skip first row
             unpredicted = df.iloc[1:][df['chronos'].isna()]
             # Process rows with missing 'chronos' one at a time
             i = 0
             for idx, row in unpredicted.iterrows():
-                # Slice the dataset up to (but not including) the current timestamp
-                historicalData = df.loc[:idx].iloc[:-1]
+                if chronosOnLast:
+                    historicalData = df.loc[:idx]
+                else:
+                    # Slice the dataset up to (but not including) the current timestamp
+                    historicalData = df.loc[:idx].iloc[:-1]
+                # print(historicalData)
                 # Ensure historicalData is non-empty before calling predict
                 if not historicalData.empty:
                     # Predict and fill the 'chronos' value for the current row
@@ -321,19 +303,9 @@ class XgbChronosPipeline(PipelineInterface):
         self.dataset = updateData(data)
         self.dataset = addPercentageChange(self.dataset)
         self.dataset = addChronos(self.dataset)
+        self.dataset['tomorrow'] = self.dataset['value'].shift(-1)
         return self.dataset
 
-
-    @staticmethod
-    def _prepareTimeFeatures(dates: np.ndarray) -> pd.DataFrame:
-        """Convert datetime series into numeric features for XGBoost"""
-        df = pd.DataFrame({'date_time': pd.to_datetime(dates)})
-        df['hour'] = df['date_time'].dt.hour
-        df['day'] = df['date_time'].dt.day
-        df['month'] = df['date_time'].dt.month
-        df['year'] = df['date_time'].dt.year
-        df['day_of_week'] = df['date_time'].dt.dayofweek
-        return df.drop('date_time', axis=1)
 
     @staticmethod
     def paramBounds() -> dict:
