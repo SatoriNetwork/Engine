@@ -150,47 +150,48 @@ class StreamModel:
             - model replaced with a better one
             - new observation on the stream
         """
-        updatedModel = updatedModel or self.stable
-        if updatedModel is not None:
-            forecast = updatedModel.predict(data=self.data)
-            if isinstance(forecast, pd.DataFrame):
-                observationTime = datetimeToTimestamp(now())
-                prediction = StreamForecast.firstPredictionOf(forecast)
-                observationHash = hashIt(
-                    getHashBefore(pd.DataFrame(), observationTime)
-                    + str(observationTime)
-                    + str(prediction))
-                self.save_prediction(
-                    observationTime, prediction, observationHash)
-                streamforecast = StreamForecast(
-                    streamId=self.streamId,
-                    predictionStreamId=self.predictionStreamId,
-                    currentValue=self.data,
-                    forecast=forecast,  # maybe we can fetch this value from predictionHistory
-                    observationTime=observationTime,
-                    observationHash=observationHash,
-                    predictionHistory=CSVManager().read(self.prediction_data_path()))
-                self.predictionProduced.on_next(streamforecast)
-            else:
-                error("Forecast failed, retrying with Quick Model")
-                debug("Model Path to be deleted : ",
-                      self.modelPath(), color="teal")
-                if os.path.isfile(self.modelPath()):
-                    try:
-                        os.remove(self.modelPath())
-                        debug("Deleted failed model file", color="teal")
-                    except Exception as e:
-                        error(f"Failed to delete model file: {str(e)}")
-                backupModel = self.defaultPipelines[-1]()
-                try:
-                    trainingResult = backupModel.fit(data=self.data)
-                    if abs(trainingResult.status) == 1:
-                        self.producePrediction(backupModel)
-                    else:
-                        error(
-                            f"Failed to train alternative model (status: {trainingResult.status})")
-                except Exception as e:
-                    error(f"Error training new model: {str(e)}")
+        try:
+            updatedModel = updatedModel or self.stable
+            if updatedModel is not None:
+                forecast = updatedModel.predict(data=self.data)
+                if isinstance(forecast, pd.DataFrame):
+                    observationTime = datetimeToTimestamp(now())
+                    prediction = StreamForecast.firstPredictionOf(forecast)
+                    observationHash = hashIt(
+                        getHashBefore(pd.DataFrame(), observationTime)
+                        + str(observationTime)
+                        + str(prediction))
+                    self.save_prediction(
+                        observationTime, prediction, observationHash)
+                    streamforecast = StreamForecast(
+                        streamId=self.streamId,
+                        predictionStreamId=self.predictionStreamId,
+                        currentValue=self.data,
+                        forecast=forecast,  # maybe we can fetch this value from predictionHistory
+                        observationTime=observationTime,
+                        observationHash=observationHash,
+                        predictionHistory=CSVManager().read(self.prediction_data_path()))
+                    self.predictionProduced.on_next(streamforecast)
+                else:
+                    raise Exception("Forecast not in dataframe format")
+        except Exception as e:
+            error(e)
+            self.fallback_prediction()
+    
+    def fallback_prediction(self):
+        if os.path.isfile(self.modelPath()):
+            try:
+                os.remove(self.modelPath())
+                debug("Deleted failed model file", color="teal")
+            except Exception as e:
+                error(f"Failed to delete model file: {str(e)}")
+        backupModel = self.defaultPipelines[-1]()
+        try:
+            trainingResult = backupModel.fit(data=self.data)
+            if abs(trainingResult.status) == 1:
+                self.producePrediction(backupModel)
+        except Exception as e:
+            error(f"Error training new model: {str(e)}")
 
     def save_prediction(
         self,
