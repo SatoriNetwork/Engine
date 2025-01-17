@@ -1,6 +1,6 @@
-# Custom Pipeline Implementation Guide
+# Custom Adapter Implementation Guide
 
-This guide explains how to create your own custom model pipeline by implementing the `PipelineInterface`. The interface provides a standardized way to integrate different machine learning models into the Engine.
+This guide explains how to create your own custom model adapter by implementing the `ModelAdapter`. The interface provides a standardized way to integrate different machine learning models into the Engine.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -11,7 +11,7 @@ This guide explains how to create your own custom model pipeline by implementing
 
 ## Overview
 
-The `PipelineInterface` defines a standard contract for model pipelines, ensuring compatibility with the prediction engine. Each pipeline must implement methods for:
+The `ModelAdapter` defines a standard contract for model adapters, ensuring compatibility with the prediction engine. Each adapter must implement methods for:
 - Model condition evaluation
 - Model loading and saving
 - Training and prediction
@@ -19,14 +19,14 @@ The `PipelineInterface` defines a standard contract for model pipelines, ensurin
 
 ## Interface Requirements
 
-Your custom pipeline class must implement these methods from `PipelineInterface`:
+Your custom adapter class must implement these methods from `ModelAdapter`:
 
 ### 1. `condition()`
 ```python
 @staticmethod
 def condition(*args, **kwargs) -> float:
 ```
-Determines when the Engine should choose the pipeline for given conditions. Returns a value between 0 and 1:
+Determines when the Engine should choose the adapter for given conditions. Returns a value between 0 and 1:
 - 0: Not suitable
 - 1: Ideal conditions
 
@@ -38,7 +38,7 @@ Example criteria:
 
 ### 2. `load()` and `save()`
 ```python
-def load(self, modelPath: str, **kwargs) -> Union[None, PipelineInterface]:
+def load(self, modelPath: str, **kwargs) -> Union[None, ModelAdapter]:
 def save(self, modelpath: str, **kwargs) -> bool:
 ```
 Handle model persistence:
@@ -84,11 +84,11 @@ Generates predictions:
 
 ## Implementation Guide
 
-1. Create a new class inheriting from `PipelineInterface`:
+1. Create a new class inheriting from `ModelAdapter`:
 ```python
-from satoriengine.veda.pipelines.interface import PipelineInterface
+from satoriengine.veda.adapters.interface import ModelAdapter
 
-class MyCustomPipeline(PipelineInterface):
+class MyCustomAdapter(ModelAdapter):
     def __init__(self, **kwargs):
         super().__init__()
         self.model = None
@@ -100,7 +100,7 @@ class MyCustomPipeline(PipelineInterface):
 ```python
     @staticmethod
     def condition(*args, **kwargs) -> float:
-    def load(self, modelPath: str, **kwargs) -> Union[None, PipelineInterface]:
+    def load(self, modelPath: str, **kwargs) -> Union[None, ModelAdapter]:
     def save(self, modelpath: str, **kwargs) -> bool:
     def fit(self, *args, **kwargs) -> TrainingResult:
     def compare(self, *args, **kwargs) -> bool:
@@ -108,9 +108,9 @@ class MyCustomPipeline(PipelineInterface):
     def predict(self, *args, **kwargs) -> Union[None, pd.DataFrame]:
 ```
 
-3. Implement Pipeline specific methods if any:
+3. Implement Adapter specific methods if any:
 ```python
-    #Example ( Function for preparing time features for XGB Pipeline )
+    #Example ( Function for preparing time features for XGB Adapter )
     @staticmethod
     def _prepareTimeFeatures(dates: np.ndarray) -> pd.DataFrame:
         """Convert datetime series into numeric features for XGBoost"""
@@ -135,9 +135,9 @@ class MyCustomPipeline(PipelineInterface):
 The library provides a helpful `process_data` function that handles most common data processing tasks:
 
 ```python
-from satoriengine.veda.pipelines.sktime.process import process_data
+from satoriengine.veda.adapters.sktime.process import process_data
 
-# Use in your pipeline, data being a dataframe with atleast 3 rows
+# Use in your adapter, data being a dataframe with atleast 3 rows
 processed = process_data(data)
 ```
 
@@ -147,9 +147,9 @@ What `process_data` does for you:
 - Creates useful dataset features
 - Calculates sampling frequency of your data
 - Determines number of forecasting steps, backtest steps.
-- Provides other helpful dataset statistics ( check out [process.py](satoriengine/veda/pipelines/sktime/process.py) to know more )
+- Provides other helpful dataset statistics ( check out [process.py](satoriengine/veda/adapters/sktime/process.py) to know more )
 
-Example usage in a pipeline:
+Example usage in a adapter:
 ```python
 def fit(self, data: pd.DataFrame, **kwargs):
     # Let process_data handle the heavy lifting
@@ -164,8 +164,8 @@ def fit(self, data: pd.DataFrame, **kwargs):
     # Continue with your model training...
 ```
 
-This saves you from having to write your own data preprocessing code and ensures consistency across different pipelines.
+This saves you from having to write your own data preprocessing code and ensures consistency across different adapters.
 
 ## Examples
 
-For examples and reference implementations, check out [here](satoriengine/veda/pipelines).
+For examples and reference implementations, check out [here](satoriengine/veda/adapters).
