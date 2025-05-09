@@ -495,6 +495,7 @@ class StreamModel:
         while True:
             await asyncio.sleep(9)
             if not self.isConnectedToPublisher:
+                await self.dataClientOfIntServer.streamInactive(self.streamUuid)
                 await self.connectToPeer()
                 await self.startStreamService()
 
@@ -530,7 +531,7 @@ class StreamModel:
                     self.usePubSub = False
                     return True
             self.publisherHost = None
-            warning('Failed to connect to Peers, switching to PubSub', print=True)
+            warning('Failed to connect to Peers, switching to PubSub', self.streamUuid, print=True)
             self.usePubSub = True
             # p2p-proactive publisher
             # check if the direct publisher has un-reachable ip, if it does then subscribe to our own server for the stream id
