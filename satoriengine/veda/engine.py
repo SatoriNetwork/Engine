@@ -461,6 +461,7 @@ class StreamModel:
         # asyncio.create_task(self.maintain_connection()) # Testing
         await self.connectToPeer()
         asyncio.create_task(self.stayConnectedToPublisher())
+        asyncio.create_task(self.checkIfPublisherStreamIsActive())
         await self.startStreamService()
 
     async def startStreamService(self):
@@ -491,42 +492,60 @@ class StreamModel:
             return self.dataClientOfExtServer.isConnected(self.returnPeerIp(), self.returnPeerPort())
         return False
 
+    @property
+    def isConnectedToPublisher(self):
+        if hasattr(self, 'dataClientOfExtServer') and self.dataClientOfExtServer is not None and self.publisherHost is not None:
+            return self.dataClientOfExtServer.isConnected(self.returnPeerIp(), self.returnPeerPort())
+        return False
+
     async def stayConnectedToPublisher(self):
         while True:
             await asyncio.sleep(9)
             if not self.isConnectedToPublisher:
+                self.publisherHost = None
                 await self.dataClientOfIntServer.streamInactive(self.streamUuid)
                 await self.connectToPeer()
                 await self.startStreamService()
 
+    async def checkIfPublisherStreamIsActive(self):
+        while True:
+            await asyncio.sleep(60*5)
+            if self.publisherHost is not None:
+                print("Here!!!!!!!!!!!!!!!!!!!!!")
+                if not self._isPublisherActive():
+                    await self.dataClientOfIntServer.streamInactive(self.streamUuid)
+                    await self.connectToPeer()
+                    await self.startStreamService()
+                
+    async def _isPublisherActive(self, publisher: str = None) -> bool:
+        ''' confirms if the publisher has the subscription stream in its available stream '''
+        try:
+            response = await self.dataClientOfExtServer.isStreamActive(
+                        peerHost=self.returnPeerIp(publisher) if publisher else self.returnPeerIp(),
+                        peerPort=self.returnPeerPort(publisher) if publisher else self.returnPeerIp(),
+                        uuid=self.streamUuid)
+            if response.status == DataServerApi.statusSuccess.value:
+                return True
+            else:
+                raise Exception
+        except Exception:
+            # warning('Failed to connect to an active Publisher ', publisher)
+            return False
+
 
     async def connectToPeer(self) -> bool:
         ''' Connects to a peer to receive subscription if it has an active subscription to the stream '''
-        async def _isPublisherActive(publisher: str) -> bool:
-            ''' confirms if the publisher has the subscription stream in its available stream '''
-            try:
-                response = await self.dataClientOfExtServer.isStreamActive(
-                            peerHost=self.returnPeerIp(publisher),
-                            peerPort=self.returnPeerPort(publisher),
-                            uuid=self.streamUuid)
-                if response.status == DataServerApi.statusSuccess.value:
-                    return True
-                else:
-                    raise Exception
-            except Exception:
-                # warning('Failed to connect to an active Publisher ', publisher)
-                return False
 
         while not self.isConnectedToPublisher:
             if self.peerInfo.publishersIp is not None and len(self.peerInfo.publishersIp) > 0:
                 self.publisherHost = self.peerInfo.publishersIp[0]
-                if await _isPublisherActive(self.publisherHost):
+                if await self._isPublisherActive(self.publisherHost):
                     self.usePubSub = False
                     return True
             self.peerInfo.subscribersIp = [ip for ip in self.peerInfo.subscribersIp]
             self.rng.shuffle(self.peerInfo.subscribersIp)
             for subscriberIp in self.peerInfo.subscribersIp:
-                if await _isPublisherActive(subscriberIp):
+                if await self._isPublisherActive(subscriberIp):
                     self.publisherHost = subscriberIp
                     self.usePubSub = False
                     return True
