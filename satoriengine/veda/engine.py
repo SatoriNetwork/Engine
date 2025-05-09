@@ -531,12 +531,12 @@ class StreamModel:
                     return True
             self.publisherHost = None
             warning('Failed to connect to Peers, switching to PubSub', print=True)
+            self.usePubSub = True
             # p2p-proactive publisher
             # check if the direct publisher has un-reachable ip, if it does then subscribe to our own server for the stream id
             # but since we don't know if that publisher is active we are going to connect to pub-sub anyways
             # once we get a subscription stream in our server from the direct publisher, the server sends that back to this engine client which indicates that publisher is active
             # so we disconnect from pubsub and keep being subscribed to our server, if we get in-active message then we do the whole process again.
-            self.usePubSub = True
             await asyncio.sleep(60*60)
 
     async def syncData(self):
@@ -598,6 +598,7 @@ class StreamModel:
 
     async def handleSubscriptionMessage(self, subscription: any,  message: Message, pubSubFlag: bool = False):
         if message.status == DataClientApi.streamInactive.value:
+            print("Inactive")
             self.publisherHost = None
             await self.connectToPeer()
             await self.startStreamService()
