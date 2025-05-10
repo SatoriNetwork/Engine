@@ -511,7 +511,6 @@ class StreamModel:
         while True:
             await asyncio.sleep(60*5)
             if self.publisherHost is not None:
-                print("Here!!!!!!!!!!!!!!!!!!!!!")
                 if not self._isPublisherActive():
                     await self.dataClientOfIntServer.streamInactive(self.streamUuid)
                     await self.connectToPeer()
@@ -535,6 +534,13 @@ class StreamModel:
 
     async def connectToPeer(self) -> bool:
         ''' Connects to a peer to receive subscription if it has an active subscription to the stream '''
+        async def try_connection(ip):
+            try:
+                if await self._isPublisherActive(ip):
+                    return (ip, True)
+                return (ip, False)
+            except Exception as e:
+                return (ip, False)
 
         while not self.isConnectedToPublisher:
             if self.peerInfo.publishersIp is not None and len(self.peerInfo.publishersIp) > 0:
@@ -542,21 +548,30 @@ class StreamModel:
                 if await self._isPublisherActive(self.publisherHost):
                     self.usePubSub = False
                     return True
-            self.peerInfo.subscribersIp = [ip for ip in self.peerInfo.subscribersIp]
-            self.rng.shuffle(self.peerInfo.subscribersIp)
-            for subscriberIp in self.peerInfo.subscribersIp:
-                if await self._isPublisherActive(subscriberIp):
-                    self.publisherHost = subscriberIp
-                    self.usePubSub = False
-                    return True
+            subscriber_ips = [ip for ip in self.peerInfo.subscribersIp]
+            self.rng.shuffle(subscriber_ips)
+            tasks = []
+            for ip in subscriber_ips:
+                task = asyncio.create_task(try_connection(ip))
+                tasks.append(task)
+
+            for future in asyncio.as_completed(tasks):
+                try:
+                    ip, is_active = await future
+                    if is_active:
+                        for task in tasks:
+                            if not task.done():
+                                task.cancel()
+                        self.publisherHost = ip
+                        self.usePubSub = False
+                        return True
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    error(f"Error checking peer: {str(e)}")
             self.publisherHost = None
             warning('Failed to connect to Peers, switching to PubSub', self.streamUuid, print=True)
             self.usePubSub = True
-            # p2p-proactive publisher
-            # check if the direct publisher has un-reachable ip, if it does then subscribe to our own server for the stream id
-            # but since we don't know if that publisher is active we are going to connect to pub-sub anyways
-            # once we get a subscription stream in our server from the direct publisher, the server sends that back to this engine client which indicates that publisher is active
-            # so we disconnect from pubsub and keep being subscribed to our server, if we get in-active message then we do the whole process again.
             await asyncio.sleep(60*60)
 
     async def syncData(self):
