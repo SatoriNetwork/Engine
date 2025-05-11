@@ -460,8 +460,7 @@ class StreamModel:
         # await self.makeSubscription(self.dataClientOfIntServer.serverHostPort[0], True)
         # asyncio.create_task(self.maintain_connection()) # Testing
         await self.connectToPeer()
-        asyncio.create_task(self.stayConnectedToPublisher())
-        asyncio.create_task(self.checkIfPublisherStreamIsActive())
+        asyncio.create_task(self.monitorPublisherConnection())
         await self.startStreamService()
 
     async def startStreamService(self):
@@ -498,20 +497,20 @@ class StreamModel:
             return self.dataClientOfExtServer.isConnected(self.returnPeerIp(), self.returnPeerPort())
         return False
 
-    async def stayConnectedToPublisher(self):
+    async def monitorPublisherConnection(self):
+        """Combined method that monitors connection status and stream activity"""
         while True:
-            await asyncio.sleep(9)
-            if not self.isConnectedToPublisher:
-                self.publisherHost = None
-                await self.dataClientOfIntServer.streamInactive(self.streamUuid)
-                await self.connectToPeer()
-                await self.startStreamService()
-
-    async def checkIfPublisherStreamIsActive(self):
-        while True:
-            await asyncio.sleep(60*5)
-            if self.publisherHost is not None:
-                if not self._isPublisherActive():
+            for _ in range(30):  
+                if not self.isConnectedToPublisher:
+                    self.publisherHost = None
+                    await self.dataClientOfIntServer.streamInactive(self.streamUuid)
+                    await self.connectToPeer()
+                    await self.startStreamService()
+                    break  
+                await asyncio.sleep(9)  
+                
+            if self.publisherHost is not None and self.isConnectedToPublisher:
+                if not await self._isPublisherActive():
                     await self.dataClientOfIntServer.streamInactive(self.streamUuid)
                     await self.connectToPeer()
                     await self.startStreamService()
@@ -520,15 +519,15 @@ class StreamModel:
         ''' confirms if the publisher has the subscription stream in its available stream '''
         try:
             response = await self.dataClientOfExtServer.isStreamActive(
-                        peerHost=self.returnPeerIp(publisher) if publisher else self.returnPeerIp(),
-                        peerPort=self.returnPeerPort(publisher) if publisher else self.returnPeerIp(),
+                        peerHost=self.returnPeerIp(publisher) if publisher is not None else self.returnPeerIp(),
+                        peerPort=self.returnPeerPort(publisher) if publisher is not None else self.returnPeerPort(),
                         uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
                 return True
             else:
                 raise Exception
-        except Exception:
-            # warning('Failed to connect to an active Publisher ', publisher)
+        except Exception as e:
+            # warning('Failed to connect to an active Publisher ', e,  publisher)
             return False
 
 
