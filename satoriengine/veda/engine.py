@@ -622,14 +622,16 @@ class StreamModel:
                 **(dict() if serverSubscribe is True else {'peerPort': self.returnPeerPort()}),
                 uuid=self.streamUuid,
                 publicationUuid=self.predictionStreamUuid,
-                callback=self.handleSubscriptionMessage)
+                callback=self.handleSubscriptionMessage,
+                engineSubscribed=True)
         else:
             await self.dataClientOfExtServer.subscribe(
                 peerHost=peerHost or self.returnPeerIp(),
                 **(dict() if serverSubscribe is True else {'peerPort': self.returnPeerPort()}),
                 uuid=self.streamUuid,
                 publicationUuid=self.predictionStreamUuid,
-                callback=self.handleSubscriptionMessage)
+                callback=self.handleSubscriptionMessage,
+                engineSubscribed=True)
 
     async def handleSubscriptionMessage(self, subscription: any,  message: Message, pubSubFlag: bool = False):
         if message.status == DataClientApi.streamInactive.value:
