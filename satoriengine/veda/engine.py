@@ -127,7 +127,7 @@ class Engine:
                             #     f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})',
                             #     print=True)
                             streamModel = self.streamModels.get(obs.streamId.uuid)
-                            if isinstance(streamModel, StreamModel) and getattr(streamModel, 'UsePubsub', True):
+                            if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
                                 info(
                                     'received:',
                                     f'\n {obs.streamId.cleanId}',
