@@ -133,35 +133,6 @@ class Engine:
                                     f'\n {obs.streamId.cleanId}',
                                     f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})',
                                     print=True)
-                                # try:
-                                #     task = asyncio.create_task(
-                                #         streamModel.handleSubscriptionMessage(
-                                #             "Subscription",
-                                #             message=Message({
-                                #                 'data': obs,
-                                #                 'status': 'stream/observation'}),
-                                #             pubSubFlag=True)
-                                #     )
-                                    
-                                #     # Store the task reference to prevent garbage collection
-                                #     self.threads.append(task)  # Rename self.threads to self.tasks for clarity
-                                    
-                                #     # Set up a callback to handle task completion and cleanup
-                                #     def task_done_callback(completed_task):
-                                #         try:
-                                #             # Check for exceptions
-                                #             if completed_task.exception():
-                                #                 error(f"Exception in task: {completed_task.exception()}")
-                                #             # Remove task from the list once completed
-                                #             if completed_task in self.threads:
-                                #                 self.threads.remove(completed_task)
-                                #         except asyncio.CancelledError:
-                                #             # Handle cancellation
-                                #             pass
-                                    
-                                #     task.add_done_callback(task_done_callback)
-                                # except Exception as e:
-                                #     error(f"Failed to create task: {e}")
 
                                 def run_async_in_thread():
                                     try:
@@ -181,7 +152,6 @@ class Engine:
                                         traceback.print_exc()
                                     finally:
                                         loop.close()
-                                        # Remove this thread from the list of active threads
                                         if thread in self.threads:
                                             self.threads.remove(thread)
                                 
@@ -244,7 +214,6 @@ class Engine:
     async def startService(self):
         await self.getPubSubInfo()
         await self.initializeModels()
-        # await asyncio.Event().wait()
 
     def pause(self, force: bool = False):
         if force:
@@ -411,7 +380,6 @@ class StreamModel:
         self.transferProtocol: str = transferProtocol
         self.usePubSub: bool = False
         self.currentPredictionTask = None
-        # self.syncedPublishers = set() # variable used for not syncing everytime
 
     async def initialize(self):
         self.data: pd.DataFrame = await self.loadData()
@@ -422,27 +390,6 @@ class StreamModel:
         self.paused: bool = False
         self.dataClientOfExtServer: Union[DataClient, None] = DataClient(self.dataClientOfIntServer.serverHostPort[0], self.dataClientOfIntServer.serverPort, identity=self.identity)
         debug(f'AI Engine: stream id {self.streamUuid} using {self.adapter.__name__}', color='teal')
-
-    # async def tempDataClientWithServer(self):
-    #     ''' we instantiate a data client which has isLocal='engine' as Auth everytime we try to communicate with our own data stream and close it after the usage '''
-    #     async def authenticate(dataClient: DataClient) -> bool:
-    #         response = await dataClient.authenticate(islocal='engine')
-    #         if response.status == DataServerApi.statusSuccess.value:
-    #             info("Local Engine successfully connected to Server Ip at :", self.dataServerIp, color="green")
-    #             return True
-    #         return False
-
-    #     async def initiateServerConnection() -> bool:
-    #         ''' local engine client authorization '''
-    #         dataClientTemp = DataClient(self.dataClientOfIntServer.serverHostPort[0], self.dataClientOfIntServer.serverPort, identity=self.identity)
-    #         return await authenticate(dataClientTemp)
-
-    #     while not self.isConnectedToServer:
-    #         try:
-    #             if await initiateServerConnection():
-    #                 return True
-    #         except Exception as e:
-    #             error(f'Failed to connect to server', e)
 
     # Testing Purpose ( Don't Delete ): Add heartbeat mechanism to maintain connections during long processing
     async def maintain_connection(self):
@@ -458,16 +405,12 @@ class StreamModel:
 
     async def p2pInit(self):
         # await self.makeSubscription(self.dataClientOfIntServer.serverHostPort[0], True)
-        # asyncio.create_task(self.maintain_connection()) # Testing
         await self.connectToPeer()
         asyncio.create_task(self.monitorPublisherConnection())
         await self.startStreamService()
+        # asyncio.create_task(self.maintain_connection()) # Testing
 
     async def startStreamService(self):
-        # The below helps to not sync everytime we connect to publisher, if any problems arises with sync then we can enable the below
-        # if self.publisherHost not in self.syncedPublishers:
-        #     await self.syncData()
-        #     self.syncedPublishers.add(self.publisherHost)
         await self.syncData()
         await self.makeSubscription()
 
@@ -634,30 +577,15 @@ class StreamModel:
 
     async def handleSubscriptionMessage(self, subscription: any,  message: Message, pubSubFlag: bool = False):
         if message.status == DataClientApi.streamInactive.value:
-            print("Inactive")
+            warning("Stream Inactive")
+            await self.dataClientOfIntServer.streamInactive(self.streamUuid)
             self.publisherHost = None
             await self.connectToPeer()
             await self.startStreamService()
         else:
             await self.appendNewData(message.data, pubSubFlag)
             self.pauseAll(force=True)
-            # try:
-            #     if self.currentPredictionTask is not None and not self.currentPredictionTask.done():
-            #         self.currentPredictionTask.cancel()
-            #         try:
-            #             await asyncio.wait_for(asyncio.shield(self.currentPredictionTask), timeout=0.5)
-            #         except (asyncio.CancelledError, asyncio.TimeoutError):
-            #             pass
-            #         error(f"Canceled existing prediction task for stream {self.streamUuid}")
-            # except Exception as e:
-            #     error(f"Error canceling task: {str(e)}")
-
-            # self.currentPredictionTask = asyncio.create_task(self.producePrediction())
             await self.producePrediction()
-            running_tasks = len([t for t in asyncio.all_tasks() if not t.done()])
-            all_tasks = len([t for t in asyncio.all_tasks()])
-            print("all_tasks", all_tasks)
-            print(f"Total running tasks: {running_tasks}")
             self.resumeAll(force=True)
 
     def pause(self):
@@ -729,9 +657,6 @@ class StreamModel:
         except Exception as e:
             error('Failed to send Prediction to server : ', e)
 
-    #pubsub functions
-
-
     async def producePrediction(self, updatedModel=None):
         """
         triggered by
@@ -743,7 +668,7 @@ class StreamModel:
             if updatedModel is not None:
                 loop = asyncio.get_event_loop()
                 forecast = await loop.run_in_executor(
-                    None,  # Uses default executor (ThreadPoolExecutor)
+                    None, 
                     lambda: updatedModel.predict(data=self.data)
                 )
                 if isinstance(forecast, pd.DataFrame):
@@ -851,9 +776,6 @@ class StreamModel:
         model so far in order to replace it if the new model is better, always
         using the best known model to make predictions on demand.
         """
-        # for testing
-        #if self.modelPath() != "/Satori/Neuron/models/veda/YyBHl6bN1GejAEyjKwEDmywFU-M-/XgbChronosAdapter.joblib":
-        #    return
         while len(self.data) > 0:
             if self.paused:
                 await asyncio.sleep(10)
@@ -890,17 +812,6 @@ class StreamModel:
         if hasattr(self, 'thread') and self.thread and self.thread.is_alive():
             warning(f"Thread for model {self.streamUuid} already running. Not creating another.")
             return
-
-        # def training_loop_thread():
-        #     try:
-        #         loop = asyncio.new_event_loop()
-        #         asyncio.set_event_loop(loop)
-        #         loop.run_until_complete(self.run())
-        #         loop.close()
-        #     except Exception as e:
-        #         error(f"Error in training loop thread: {e}")
-        #         import traceback
-        #         traceback.print_exc()
 
         def training_loop_thread():
             try:
