@@ -651,6 +651,9 @@ class StreamModel:
 
     async def passPredictionData(self, forecast: pd.DataFrame):
         try:
+            if not hasattr(self, 'activatePredictionStream'):
+                await self.dataClientOfIntServer.addActiveStream(uuid=self.predictionStreamUuid)
+                self.activatePredictionStream = True
             response = await self.dataClientOfIntServer.insertStreamData(
                             uuid=self.predictionStreamUuid,
                             data=forecast,
