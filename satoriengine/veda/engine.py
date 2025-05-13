@@ -241,9 +241,9 @@ class Engine:
             response = await self.dataClient.authenticate(islocal='engine')
             if response.status == DataServerApi.statusSuccess.value:
                 info("Local Engine successfully connected to Server Ip at :", self.dataServerIp, color="green")
-                for _, streamModel in self.streamModels.items():
-                    if hasattr(streamModel, 'dataClientOfIntServer'):
-                        streamModel.updateDataClient(self.dataClient)
+                # for _, streamModel in self.streamModels.items():
+                #     if hasattr(streamModel, 'dataClientOfIntServer'):
+                #         streamModel.updateDataClient(self.dataClient)
                 return True
             return False
 
@@ -489,7 +489,7 @@ class StreamModel:
                     self.usePubSub = False
                     return True
             # try our own data server
-            self.publisherHost = self.dataClientOfIntServer.serverHostPort[0] + ':' + str(self.dataClientOfIntServer.serverHostPort[1])
+            # self.publisherHost = self.dataClientOfIntServer.serverHostPort[0] + ':' + str(self.dataClientOfIntServer.serverHostPort[1])
             response = await self.dataClientOfIntServer.isStreamActive(uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
                 info("Connected to Local Data Server", self.streamUuid)
