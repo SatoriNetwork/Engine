@@ -463,6 +463,7 @@ class StreamModel:
                         peerPort=self.returnPeerPort(publisher) if publisher is not None else self.returnPeerPort(),
                         uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
+                await self.dataClientOfIntServer.addActiveStream(uuid=self.streamUuid)
                 return True
             else:
                 raise Exception
@@ -489,7 +490,6 @@ class StreamModel:
                     self.usePubSub = False
                     return True
             # try our own data server
-            # self.publisherHost = self.dataClientOfIntServer.serverHostPort[0] + ':' + str(self.dataClientOfIntServer.serverHostPort[1])
             response = await self.dataClientOfIntServer.isStreamActive(uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
                 info("Connected to Local Data Server", self.streamUuid)
