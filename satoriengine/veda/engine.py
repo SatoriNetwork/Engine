@@ -840,3 +840,10 @@ class StreamModel:
 
         self.thread = threading.Thread(target=training_loop_thread, daemon=True)
         self.thread.start()
+
+
+async def main():
+    await Engine.create()
+    await asyncio.Event().wait()
+    
+asyncio.run(main())
