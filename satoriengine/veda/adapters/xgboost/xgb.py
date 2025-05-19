@@ -3,6 +3,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
+import datetime
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -37,7 +38,7 @@ class XgbAdapter(ModelAdapter):
         self.fullX: pd.DataFrame = None
         self.fullY: pd.Series = None
         self.split: float = None
-        self.rng = np.random.default_rng(37)
+        self.rng = np.random.default_rng(datetime.datetime.now().microsecond // 100)
 
     def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
         """loads the model model from disk if present"""

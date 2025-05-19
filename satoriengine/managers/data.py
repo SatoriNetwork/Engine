@@ -194,17 +194,9 @@ class DataManager(Cached):
             def pathForDataset():
                 return Disk(id=observation.key).path()
 
-            def maybeResyncWithSynergy(cachedResult: CachedResult):
-                """resync with the synergy server if necessary"""
-                if not cachedResult.validated:
-                    self.getStart().syncDataset(observation.key)
-
             if remember():
                 cachedResult = saveIncremental()
-                try:
-                    maybeResyncWithSynergy(cachedResult)
-                except Exception as e:
-                    logging.error("unable to resync stream:", e, print=True)
+                # sync?
                 tellModels()
                 # compress()
                 # path = pathForDataset()

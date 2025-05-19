@@ -8,6 +8,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
+import datetime
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -43,7 +44,7 @@ class XgbChronosAdapter(ModelAdapter):
         self.trainY: np.ndarray = None
         self.testY: np.ndarray = None
         self.split: float = None
-        self.rng = np.random.default_rng(37)
+        self.rng = np.random.default_rng(datetime.datetime.now().microsecond // 100)
 
     @staticmethod
     def _load(modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
