@@ -121,18 +121,12 @@ class Engine:
                     if response.startswith('{"topic":') or response.startswith('{"data":'):
                         try:
                             obs = Observation.parse(response)
-                            # warning(
-                            #     'received:',
-                            #     f'\n {obs.streamId.cleanId}',
-                            #     f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})',
-                            #     print=True)
                             streamModel = self.streamModels.get(obs.streamId.uuid)
                             if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
                                 info(
                                     'received:',
                                     f'\n {obs.streamId.cleanId}',
-                                    f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})',
-                                    print=True)
+                                    f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})')
 
                                 def run_async_in_thread():
                                     try:
@@ -147,7 +141,7 @@ class Engine:
                                                 pubSubFlag=True)
                                         )
                                     except Exception as e:
-                                        print(f"Exception in async thread: {e}")
+                                        error(f"Exception in async thread: {e}")
                                         import traceback
                                         traceback.print_exc()
                                     finally:
@@ -160,9 +154,9 @@ class Engine:
                                 self.threads.append(thread)
                                 thread.start()
                         except json.JSONDecodeError:
-                            info('received unparsable message:', response, print=True)
+                            error('received unparsable message:', response)
                     else:
-                        info('received:', response, print=True)
+                        info('received:', response)
 
             info(
                 'subscribing to:' if subscription else 'publishing to:', url, color='blue')
@@ -196,7 +190,7 @@ class Engine:
             pubkey=self.identity.publicKey,
             key=signature.decode() + "|" + key,
             emergencyRestart=lambda: print('emergencyRestart not implemented'),
-            onConnect=lambda: print('onConnect not implemented'),
+            onConnect=lambda: info('onConnect not implemented'),
             onDisconnect=lambda: print('onDisconnect not implemented'))
             # TODO: tell the UI we disconnected, and reconnected... somehow...
             #onConnect=lambda: self.updateConnectionStatus(
@@ -615,7 +609,7 @@ class StreamModel:
 
     async def appendNewData(self, observation: Union[pd.DataFrame, dict], pubSubFlag: bool):
         """extract the data and save it to self.data"""
-        print(observation)
+        debug(observation, print=True)
         try:
             if pubSubFlag:
                 parsedData = json.loads(observation.raw)
@@ -697,7 +691,7 @@ class StreamModel:
                 if isinstance(forecast, pd.DataFrame):
                     predictionDf = pd.DataFrame({ 'value': [StreamForecast.firstPredictionOf(forecast)]
                                     }, index=[datetimeToTimestamp(now())])
-                    print(predictionDf)
+                    debug(predictionDf, print=True)
                     await self.passPredictionData(predictionDf)
                 else:
                     raise Exception('Forecast not in dataframe format')
@@ -813,13 +807,10 @@ class StreamModel:
                     if self.pilot.compare(self.stable):
                         if self.pilot.save(self.modelPath()):
                             self.stable = copy.deepcopy(self.pilot)
-                            info(
-                                "stable model updated for stream:",
-                                self.streamUuid,
-                                print=True)
+                            info("stable model updated for stream:", self.streamUuid)
                             await self.producePrediction(self.stable)
                 else:
-                    debug(f'model training failed on {self.streamUuid} waiting 10 minutes to retry', print=True)
+                    debug(f'model training failed on {self.streamUuid} waiting 10 minutes to retry')
                     self.failedAdapters.append(self.pilot)
                     await asyncio.sleep(600)
             except Exception as e:
