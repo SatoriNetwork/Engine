@@ -190,7 +190,7 @@ class Engine:
             pubkey=self.identity.publicKey,
             key=signature.decode() + "|" + key,
             emergencyRestart=lambda: print('emergencyRestart not implemented'),
-            onConnect=lambda: info('onConnect not implemented'),
+            onConnect=lambda: print('onConnect not implemented'),
             onDisconnect=lambda: print('onDisconnect not implemented'))
             # TODO: tell the UI we disconnected, and reconnected... somehow...
             #onConnect=lambda: self.updateConnectionStatus(
