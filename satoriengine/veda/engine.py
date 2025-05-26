@@ -82,20 +82,6 @@ class Engine:
     #    self.streamModels[stream.streamId].chooseAdapter(inplace=True)
     #    self.streamModels[stream.streamId].run_forever()
 
-    def addStream(self, stream: Stream, pubStream: Stream):
-        ''' add streams to a running engine '''
-        # don't duplicate effort
-        if stream.streamId.uuid in [s.streamId.uuid for s in self.streams]:
-            return
-        self.streams.append(stream)
-        self.pubstreams.append(pubStream)
-        self.streamModels[stream.streamId] = StreamModel(
-            streamId=stream.streamId,
-            predictionStreamId=pubStream.streamId,
-            predictionProduced=self.predictionProduced)
-        self.streamModels[stream.streamId].chooseAdapter(inplace=True)
-        self.streamModels[stream.streamId].run_forever()
-
     def subConnect(self, key: str):
         """establish a random pubsub connection used only for subscribing"""
 
@@ -123,11 +109,6 @@ class Engine:
                             obs = Observation.parse(response)
                             streamModel = self.streamModels.get(obs.streamId.uuid)
                             if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
-                                info(
-                                    'received:',
-                                    f'\n {obs.streamId.cleanId}',
-                                    f'\n ({obs.value}, {obs.observationTime}, {obs.observationHash})')
-
                                 def run_async_in_thread():
                                     try:
                                         loop = asyncio.new_event_loop()
@@ -155,6 +136,8 @@ class Engine:
                                 thread.start()
                         except json.JSONDecodeError:
                             error('received unparsable message:', response)
+                        except Exception as e:
+                            error('Error in pubsub observation', e)
                     else:
                         info('received:', response)
 
