@@ -640,15 +640,16 @@ class StreamModel:
         except Exception as e:
             error("Subscription data not added", e)
 
-    async def passPredictionData(self, forecast: pd.DataFrame):
+    async def passPredictionData(self, forecast: pd.DataFrame, passToCentralServer: bool = False):
         try:
-            if not hasattr(self, 'activatePredictionStream'):
+            if not hasattr(self, 'activatePredictionStream') and passToCentralServer:
                 await self.dataClientOfIntServer.addActiveStream(uuid=self.predictionStreamUuid)
                 self.activatePredictionStream = True
             response = await self.dataClientOfIntServer.insertStreamData(
                             uuid=self.predictionStreamUuid,
                             data=forecast,
-                            isSub=True
+                            isSub=True,
+                            replace=False if passToCentralServer else True,
                         )
             if response.status == DataServerApi.statusSuccess.value:
                 info("Prediction", response.senderMsg, color='green')
@@ -664,18 +665,21 @@ class StreamModel:
             - new observation on the stream
         """
         try:
-            updatedModel = updatedModel or self.stable
-            if updatedModel is not None:
+            model = updatedModel or self.stable
+            if model is not None:
                 loop = asyncio.get_event_loop()
                 forecast = await loop.run_in_executor(
                     None, 
-                    lambda: updatedModel.predict(data=self.data)
+                    lambda: model.predict(data=self.data)
                 )
                 if isinstance(forecast, pd.DataFrame):
                     predictionDf = pd.DataFrame({ 'value': [StreamForecast.firstPredictionOf(forecast)]
                                     }, index=[datetimeToTimestamp(now())])
                     debug(predictionDf, print=True)
-                    await self.passPredictionData(predictionDf)
+                    if updatedModel is not None:
+                        await self.passPredictionData(predictionDf)
+                    else:
+                        await self.passPredictionData(predictionDf, True)
                 else:
                     raise Exception('Forecast not in dataframe format')
         except Exception as e:
