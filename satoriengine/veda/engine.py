@@ -206,6 +206,20 @@ class Engine:
         self.streamModels[stream.streamId].chooseAdapter(inplace=True)
         self.streamModels[stream.streamId].run_forever()
 
+    def addStream(self, stream: Stream, pubStream: Stream):
+        ''' add streams to a running engine '''
+        # don't duplicate effort
+        if stream.streamId.uuid in [s.streamId.uuid for s in self.streams]:
+            return
+        self.streams.append(stream)
+        self.pubstreams.append(pubStream)
+        self.streamModels[stream.streamId] = StreamModel(
+            streamId=stream.streamId,
+            predictionStreamId=pubStream.streamId,
+            predictionProduced=self.predictionProduced)
+        self.streamModels[stream.streamId].chooseAdapter(inplace=True)
+        self.streamModels[stream.streamId].run_forever()
+
     def pause(self, force: bool = False):
         if force:
             self.paused = True
