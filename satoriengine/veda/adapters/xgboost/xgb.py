@@ -82,8 +82,10 @@ class XgbAdapter(ModelAdapter):
             return True
         thisScore = self.score()
         #otherScore = other.score(test_x=self.testX, test_y=self.testY)
-        # otherScore = other.modelError or other.score()
-        otherScore = other.modelError or 0.0
+        try:
+            otherScore = other.modelError or other.score()
+        except:
+            otherScore = 0.0
         isImproved = thisScore < otherScore
         if isImproved:
             info(
