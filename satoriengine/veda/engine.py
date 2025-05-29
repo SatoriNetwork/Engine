@@ -300,6 +300,8 @@ class Engine:
             await asyncio.sleep(5)
             self.cleanupThreads()
             if not self.isConnectedToServer:
+                import sys
+                sys.exit(1)  # Exit with error code
                 await self.connectToDataServer()
                 await self.startService()
 
@@ -479,21 +481,38 @@ class StreamModel:
 
     async def connectToPeer(self) -> bool:
         ''' Connects to a peer to receive subscription if it has an active subscription to the stream '''
-        async def try_connection(ip):
+        
+        async def check_peer_active(ip):
+            """Only check if peer is active without establishing connection"""
+            try:
+                response = await self.dataClientOfExtServer.isStreamActive(
+                    peerHost=self.returnPeerIp(ip),
+                    peerPort=self.returnPeerPort(ip),
+                    uuid=self.streamUuid
+                )
+                return response.status == DataServerApi.statusSuccess.value
+            except Exception:
+                return False
+        
+        async def establish_connection(ip):
+            """Actually establish the connection"""
             try:
                 if await self._isPublisherActive(ip):
-                    return (ip, True)
-                return (ip, False)
-            except Exception as e:
-                return (ip, False)
+                    await self.dataClientOfIntServer.addActiveStream(uuid=self.streamUuid)
+                    return True
+            except Exception:
+                pass
+            return False
 
         while not self.isConnectedToPublisher:
             # connect to direct publisher
             if self.peerInfo.publishersIp is not None and len(self.peerInfo.publishersIp) > 0:
-                self.publisherHost = self.peerInfo.publishersIp[0]
-                if await self._isPublisherActive(self.publisherHost):
+                candidate_publisher = self.peerInfo.publishersIp[0]
+                if await establish_connection(candidate_publisher):
+                    self.publisherHost = candidate_publisher
                     self.usePubSub = False
                     return True
+            
             # try our own data server
             response = await self.dataClientOfIntServer.isStreamActive(uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
@@ -501,28 +520,31 @@ class StreamModel:
                 self.internal = True
                 self.usePubSub = False
                 return True
-            # try the subscribers
+            
+            # try the subscribers - first check which ones are active
             subscriber_ips = [ip for ip in self.peerInfo.subscribersIp]
             self.rng.shuffle(subscriber_ips)
-            tasks = []
-            for ip in subscriber_ips:
-                task = asyncio.create_task(try_connection(ip))
-                tasks.append(task)
-
-            for future in asyncio.as_completed(tasks):
+            
+            # Check all peers concurrently without establishing connections
+            check_tasks = [(ip, asyncio.create_task(check_peer_active(ip))) for ip in subscriber_ips]
+            
+            # Find active peers
+            active_peers = []
+            for ip, task in check_tasks:
                 try:
-                    ip, is_active = await future
-                    if is_active:
-                        for task in tasks:
-                            if not task.done():
-                                task.cancel()
-                        self.publisherHost = ip
-                        self.usePubSub = False
-                        return True
-                except asyncio.CancelledError:
-                    pass
+                    if await task:
+                        active_peers.append(ip)
                 except Exception as e:
-                    error(f"Error checking peer: {str(e)}")
+                    error(f"Error checking peer {ip}: {str(e)}")
+            
+            # Connect to the first active peer found
+            if active_peers:
+                selected_peer = active_peers[0]  # Take first active peer
+                if await establish_connection(selected_peer):
+                    self.publisherHost = selected_peer
+                    self.usePubSub = False
+                    return True
+            
             self.publisherHost = None
             warning('Failed to connect to Peers, switching to PubSub', self.streamUuid, print=True)
             self.usePubSub = True
@@ -591,12 +613,24 @@ class StreamModel:
     async def handleSubscriptionMessage(self, subscription: any,  message: Message, pubSubFlag: bool = False):
         if message.status == DataClientApi.streamInactive.value:
             warning("Stream Inactive")
+            await self.closePeerConnection()
             self.publisherHost = None
         else:
             await self.appendNewData(message.data, pubSubFlag)
             self.pauseAll(force=True)
             await self.producePrediction()
             self.resumeAll(force=True)
+    
+    async def closePeerConnection(self):
+        """Close the connection to the current publisher peer"""
+        if self.publisherHost is not None and hasattr(self, 'dataClientOfExtServer') and self.dataClientOfExtServer is not None:
+            try:
+                peer = self.dataClientOfExtServer.peers.get((self.returnPeerIp(), self.returnPeerPort()))
+                if peer is not None:
+                    await self.dataClientOfExtServer.disconnect(peer)
+                    info(f"Closed connection to peer {(self.returnPeerIp(), self.returnPeerPort())}")
+            except Exception as e:
+                error(f"Error closing peer connection: {e}")
 
     def pause(self):
         self.paused = True
