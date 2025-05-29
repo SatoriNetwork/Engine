@@ -81,10 +81,10 @@ class XgbAdapter(ModelAdapter):
         if not isinstance(other, self.__class__):
             return True
         thisScore = self.score()
-        #otherScore = other.score(test_x=self.testX, test_y=self.testY)
         try:
-            otherScore = other.modelError or other.score()
-        except:
+            otherScore = other.score(test_x=self.testX, test_y=self.testY)
+        except Exception as e:
+            warning('unable to score properly:', e)
             otherScore = 0.0
         isImproved = thisScore < otherScore
         if isImproved:

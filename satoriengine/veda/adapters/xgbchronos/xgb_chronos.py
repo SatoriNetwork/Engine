@@ -117,8 +117,11 @@ class XgbChronosAdapter(ModelAdapter):
         if not isinstance(other, self.__class__):
             return True
         thisScore = self.score()
-        # test_x=self.testX, test_y=self.testY we could score on our updated data if other has the same shape
-        otherScore = other.modelError or other.score()
+        try:
+            otherScore = other.score(test_x=self.testX, test_y=self.testY)
+        except Exception as e:
+            warning('unable to score properly:', e)
+            otherScore = 0.0
         isImproved = thisScore < otherScore
         if isImproved:
             info(
