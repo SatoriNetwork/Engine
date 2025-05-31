@@ -68,19 +68,6 @@ class Engine:
     #    self.paused: bool = False
     #    self.threads: list[threading.Thread] = []
     #
-    #def addStream(self, stream: Stream, pubStream: Stream):
-    #    ''' add streams to a running engine '''
-    #    # don't duplicate effort
-    #    if stream.streamId.uuid in [s.streamId.uuid for s in self.streams]:
-    #        return
-    #    self.streams.append(stream)
-    #    self.pubStreams.append(pubStream)
-    #    self.streamModels[stream.streamId] = StreamModel(
-    #        streamId=stream.streamId,
-    #        predictionStreamId=pubStream.streamId,
-    #        predictionProduced=self.predictionProduced)
-    #    self.streamModels[stream.streamId].chooseAdapter(inplace=True)
-    #    self.streamModels[stream.streamId].run_forever()
 
     def subConnect(self, key: str):
         """establish a random pubsub connection used only for subscribing"""
@@ -191,20 +178,6 @@ class Engine:
     async def startService(self):
         await self.getPubSubInfo()
         await self.initializeModels()
-
-    def addStream(self, stream: Stream, pubStream: Stream):
-        ''' add streams to a running engine '''
-        # don't duplicate effort
-        if stream.streamId.uuid in [s.streamId.uuid for s in self.streams]:
-            return
-        self.streams.append(stream)
-        self.pubstreams.append(pubStream)
-        self.streamModels[stream.streamId] = StreamModel(
-            streamId=stream.streamId,
-            predictionStreamId=pubStream.streamId,
-            predictionProduced=self.predictionProduced)
-        self.streamModels[stream.streamId].chooseAdapter(inplace=True)
-        self.streamModels[stream.streamId].run_forever()
 
     def addStream(self, stream: Stream, pubStream: Stream):
         ''' add streams to a running engine '''
@@ -517,6 +490,7 @@ class StreamModel:
             response = await self.dataClientOfIntServer.isStreamActive(uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
                 info("Connected to Local Data Server", self.streamUuid)
+                self.publisherHost = f"{self.dataClientOfIntServer.serverHostPort[0]}:{self.dataClientOfIntServer.serverPort}"
                 self.internal = True
                 self.usePubSub = False
                 return True
@@ -588,6 +562,7 @@ class StreamModel:
                     raise Exception(DataResponse.senderMsg)
         except Exception as e:
             error("Failed to sync data, ", e)
+            self.publisherHost = None
 
     async def makeSubscription(self):
         '''
@@ -623,14 +598,23 @@ class StreamModel:
     
     async def closePeerConnection(self):
         """Close the connection to the current publisher peer"""
+        if self.internal:
+            # No external connection to close for internal streams
+            return
         if self.publisherHost is not None and hasattr(self, 'dataClientOfExtServer') and self.dataClientOfExtServer is not None:
             try:
                 peer = self.dataClientOfExtServer.peers.get((self.returnPeerIp(), self.returnPeerPort()))
                 if peer is not None:
                     await self.dataClientOfExtServer.disconnect(peer)
                     info(f"Closed connection to peer {(self.returnPeerIp(), self.returnPeerPort())}")
+                self.publisherHost = None
+                try:
+                    await self.dataClientOfIntServer.streamInactive(self.streamUuid)
+                except Exception as stream_error:
+                    warning(f"Failed to notify internal server of stream inactivity: {stream_error}")
             except Exception as e:
                 error(f"Error closing peer connection: {e}")
+                self.publisherHost = None
 
     def pause(self):
         self.paused = True
