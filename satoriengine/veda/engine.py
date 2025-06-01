@@ -420,6 +420,9 @@ class StreamModel:
     async def monitorPublisherConnection(self):
         """Combined method that monitors connection status and stream activity"""
         while True:
+            if self.internal:
+                await asyncio.sleep(30)  # Still sleep to avoid busy waiting
+                continue
             for _ in range(30):  
                 if not self.isConnectedToPublisher:
                     self.publisherHost = None
@@ -512,6 +515,7 @@ class StreamModel:
                     error(f"Error checking peer {ip}: {str(e)}")
             
             # Connect to the first active peer found
+            print(active_peers)
             if active_peers:
                 selected_peer = active_peers[0]  # Take first active peer
                 if await establish_connection(selected_peer):
@@ -600,6 +604,7 @@ class StreamModel:
         """Close the connection to the current publisher peer"""
         if self.internal:
             # No external connection to close for internal streams
+            self.publisherHost = None
             return
         if self.publisherHost is not None and hasattr(self, 'dataClientOfExtServer') and self.dataClientOfExtServer is not None:
             try:
