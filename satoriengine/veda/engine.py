@@ -437,6 +437,7 @@ class StreamModel:
                     await self.dataClientOfIntServer.streamInactive(self.streamUuid)
                     await self.connectToPeer()
                     await self.startStreamService()
+                    
                 
     async def _isPublisherActive(self, publisher: str = None) -> bool:
         ''' confirms if the publisher has the subscription stream in its available stream '''
@@ -612,10 +613,6 @@ class StreamModel:
                     await self.dataClientOfExtServer.disconnect(peer)
                     info(f"Closed connection to peer {(self.returnPeerIp(), self.returnPeerPort())}")
                 self.publisherHost = None
-                try:
-                    await self.dataClientOfIntServer.streamInactive(self.streamUuid)
-                except Exception as stream_error:
-                    warning(f"Failed to notify internal server of stream inactivity: {stream_error}")
             except Exception as e:
                 error(f"Error closing peer connection: {e}")
                 self.publisherHost = None
