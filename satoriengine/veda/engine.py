@@ -42,10 +42,7 @@ class Engine:
         self.paused: bool = False
         self.threads: list[threading.Thread] = []
         self.identity: EvrmoreIdentity = EvrmoreIdentity('/Satori/Neuron/wallet/wallet.yaml')
-        # TODO: handle the server - doesn't the neuron send our predictions to the central server to be scored? if so we don't need this here.
-        #self.server: SatoriServerClient = None
         self.sub: SatoriPubSubConn = None
-        # TOOD: cleanup - maybe this should be passed in and key'ed off ENV like was done before?
         self.urlPubsubs={
                 # 'local': ['ws://192.168.0.10:24603'],
                 'local': ['ws://pubsub1.satorinet.io:24603', 'ws://pubsub5.satorinet.io:24603', 'ws://pubsub6.satorinet.io:24603'],
@@ -54,20 +51,6 @@ class Engine:
                 'prod': ['ws://pubsub1.satorinet.io:24603', 'ws://pubsub5.satorinet.io:24603', 'ws://pubsub6.satorinet.io:24603']}['prod']
         self.transferProtocol: Union[str, None] = None
 
-
-    ## TODO: fix addStream to work with the new way init looks, not the old way:
-    #
-    #def __init__(self, streams: list[Stream], pubStreams: list[Stream]):
-    #    self.streams = streams
-    #    self.pubStreams = pubStreams
-    #    self.streamModels: Dict[StreamId, StreamModel] = {}
-    #    self.newObservation: BehaviorSubject = BehaviorSubject(None)
-    #    self.predictionProduced: BehaviorSubject = BehaviorSubject(None)
-    #    self.setupSubscriptions()
-    #    self.initializeModels()
-    #    self.paused: bool = False
-    #    self.threads: list[threading.Thread] = []
-    #
 
     def subConnect(self, key: str):
         """establish a random pubsub connection used only for subscribing"""
@@ -143,16 +126,6 @@ class Engine:
             #    'subscriptions': ['stream-b', 'stream-c', 'stream-d']})
 
 
-        # accept optional data necessary to generate models data and learner
-
-
-        # TODO: should we even do this?
-        #if self.sub is not None:
-        #    self.sub.disconnect()
-        #    # TODO replace to get this information to the UI somehow.
-        #    #self.updateConnectionStatus(
-        #    #    connTo=ConnectionTo.pubsub, status=False)
-        #    self.sub = None
         signature = self.identity.sign(key)
         self.sub = establishConnection(
             url=random.choice(self.urlPubsubs),
@@ -447,7 +420,6 @@ class StreamModel:
                         peerPort=self.returnPeerPort(publisher) if publisher is not None else self.returnPeerPort(),
                         uuid=self.streamUuid)
             if response.status == DataServerApi.statusSuccess.value:
-                await self.dataClientOfIntServer.addActiveStream(uuid=self.streamUuid)
                 return True
             else:
                 raise Exception
