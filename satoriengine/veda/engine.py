@@ -475,30 +475,30 @@ class StreamModel:
             subscriber_ips = [ip for ip in self.peerInfo.subscribersIp]
             self.rng.shuffle(subscriber_ips)
             
-            # # Check all peers concurrently without establishing connections       # sometimes unreliable
-            # check_tasks = [(ip, asyncio.create_task(check_peer_active(ip))) for ip in subscriber_ips]
-            # # Find active peers
-            # active_peers = []
-            # for ip, task in check_tasks:
-            #     try:
-            #         if await task:
-            #             active_peers.append(ip)
-            #     except Exception as e:
-            #         error(f"Error checking peer {ip}: {str(e)}")
-            # # Connect to the first active peer found
-            # if active_peers:
-            #     selected_peer = active_peers[0]  # Take first active peer
-            #     if await establish_connection(selected_peer):
-            #         self.publisherHost = selected_peer
-            #         self.usePubSub = False
-            #         return True
-
-            # slow but establishes connection successfully
-            for subscriberIp in self.peerInfo.subscribersIp:
-                if await establish_connection(subscriberIp):
-                    self.publisherHost = subscriberIp
+            # # Check all peers concurrently, faster than looping through each subscribers
+            check_tasks = [(ip, asyncio.create_task(check_peer_active(ip))) for ip in subscriber_ips]
+            # Find active peers
+            active_peers = []
+            for ip, task in check_tasks:
+                try:
+                    if await task:
+                        active_peers.append(ip)
+                except Exception as e:
+                    error(f"Error checking peer {ip}: {str(e)}")
+            # Connect to the first active peer found
+            if active_peers:
+                selected_peer = active_peers[0]  # Take first active peer
+                if await establish_connection(selected_peer):
+                    self.publisherHost = selected_peer
                     self.usePubSub = False
                     return True
+
+            # slow
+            # for subscriberIp in self.peerInfo.subscribersIp:
+            #     if await establish_connection(subscriberIp):
+            #         self.publisherHost = subscriberIp
+            #         self.usePubSub = False
+            #         return True
             
             self.publisherHost = None
             warning('Failed to connect to Peers, switching to PubSub', self.streamUuid, print=True)
