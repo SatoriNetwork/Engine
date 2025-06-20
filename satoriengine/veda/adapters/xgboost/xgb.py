@@ -3,6 +3,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
+import datetime
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -17,10 +18,10 @@ class XgbAdapter(ModelAdapter):
     def condition(*args, **kwargs) -> float:
         if (
             isinstance(kwargs.get('availableRamGigs'), float)
-            and kwargs.get('availableRamGigs') < .1
+            and kwargs.get('availableRamGigs') < .025
         ):
             return 0
-        if kwargs.get('cpu', 0) == 1 or len(kwargs.get('data', [])) >= 10_000:
+        if kwargs.get('cpu', 0) == 1 or len(kwargs.get('data', [])) > 10:
             return 1.0
         return 0.0
 
@@ -37,7 +38,7 @@ class XgbAdapter(ModelAdapter):
         self.fullX: pd.DataFrame = None
         self.fullY: pd.Series = None
         self.split: float = None
-        self.rng = np.random.default_rng(37)
+        self.rng = np.random.default_rng(datetime.datetime.now().microsecond // 100)
 
     def load(self, modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
         """loads the model model from disk if present"""
@@ -51,8 +52,8 @@ class XgbAdapter(ModelAdapter):
             if os.path.isfile(modelPath):
                 os.remove(modelPath)
             try:
-                if 'XgbPipeline' not in modelPath:
-                    modelPath = '/'.join(modelPath.split('/')[:-1]) + '/' + 'XgbPipeline.joblib'
+                if 'XgbAdapter' not in modelPath:
+                    modelPath = '/'.join(modelPath.split('/')[:-1]) + '/' + 'XgbAdapter.joblib'
                     return self.load(modelPath)
             except Exception as _:
                 pass
@@ -80,8 +81,11 @@ class XgbAdapter(ModelAdapter):
         if not isinstance(other, self.__class__):
             return True
         thisScore = self.score()
-        #otherScore = other.score(test_x=self.testX, test_y=self.testY)
-        otherScore = other.modelError or other.score()
+        try:
+            otherScore = other.score(test_x=self.testX, test_y=self.testY)
+        except Exception as e:
+            warning('unable to score properly:', e)
+            otherScore = 0.0
         isImproved = thisScore < otherScore
         if isImproved:
             info(

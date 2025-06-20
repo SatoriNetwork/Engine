@@ -86,7 +86,7 @@ def ttmDataPreprocess(data: pd.DataFrame) -> TTMProcessedData:
             if v != 0)
 
     raw_dataset = data
-    raw_dataset["date_time"] = pd.to_datetime(raw_dataset["date_time"])
+    raw_dataset["date_time"] = pd.to_datetime(raw_dataset["date_time"], utc=True)
     raw_dataset = raw_dataset.set_index("date_time")
     raw_diff_dat = raw_dataset.index.to_series().diff()
     value_counts = raw_diff_dat.value_counts().sort_index()
@@ -131,4 +131,3 @@ def ttmDataPreprocess(data: pd.DataFrame) -> TTMProcessedData:
     dataset = dataset_averaged
     dataset = dataset.asfreq(sampling_frequency, method="nearest", fill_value=np.nan)
     return TTMProcessedData(dataset, sampling_frequency)
-

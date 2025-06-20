@@ -15,4 +15,4 @@ interpolation:
 4. for other features - nan if possible
 5. for other features - if not possible, fill in with step data
 '''
-from satoriengine.veda import engine
+# from satoriengine.veda import engine

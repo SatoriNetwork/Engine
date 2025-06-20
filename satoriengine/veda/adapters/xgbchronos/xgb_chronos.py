@@ -8,6 +8,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
+import datetime
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -43,7 +44,7 @@ class XgbChronosAdapter(ModelAdapter):
         self.trainY: np.ndarray = None
         self.testY: np.ndarray = None
         self.split: float = None
-        self.rng = np.random.default_rng(37)
+        self.rng = np.random.default_rng(datetime.datetime.now().microsecond // 100)
 
     @staticmethod
     def _load(modelPath: str, **kwargs) -> Union[None, XGBRegressor]:
@@ -62,8 +63,8 @@ class XgbChronosAdapter(ModelAdapter):
         saved = XgbChronosAdapter._load(modelPath, **kwargs)
         if saved is None:
             try:
-                if 'XgbChronosPipeline' not in modelPath:
-                    modelPath = '/'.join(modelPath.split('/')[:-1]) + '/' + 'XgbChronosPipeline.joblib'
+                if 'XgbChronosAdapter' not in modelPath:
+                    modelPath = '/'.join(modelPath.split('/')[:-1]) + '/' + 'XgbChronosAdapter.joblib'
                     return self.load(modelPath)
             except Exception as _:
                 pass
@@ -116,8 +117,11 @@ class XgbChronosAdapter(ModelAdapter):
         if not isinstance(other, self.__class__):
             return True
         thisScore = self.score()
-        # test_x=self.testX, test_y=self.testY we could score on our updated data if other has the same shape
-        otherScore = other.modelError or other.score()
+        try:
+            otherScore = other.score(test_x=self.testX, test_y=self.testY)
+        except Exception as e:
+            warning('unable to score properly:', e)
+            otherScore = 0.0
         isImproved = thisScore < otherScore
         if isImproved:
             info(
@@ -144,6 +148,8 @@ class XgbChronosAdapter(ModelAdapter):
 
     def fit(self, data: pd.DataFrame, **kwargs) -> TrainingResult:
         """ Train a new model """
+        if self.chronos.model is None:
+            return TrainingResult(0, self)
         self._manageData(data)
         x = self.dataset.iloc[:-1, :-1]
         y = self.dataset.iloc[:-1, -1]

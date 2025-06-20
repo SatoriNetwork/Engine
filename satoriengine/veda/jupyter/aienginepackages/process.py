@@ -482,7 +482,7 @@ def process_data(
     raw_dataset = data
 
     # Process date_time column with flexible parsing and standardization
-    raw_dataset["date_time"] = pd.to_datetime(raw_dataset["date_time"])
+    raw_dataset["date_time"] = pd.to_datetime(raw_dataset["date_time"], utc=True)
 
     # Convert to '%Y-%m-%d %H:%M:%S' format
     raw_dataset["date_time"] = raw_dataset["date_time"].dt.strftime("%Y-%m-%d %H:%M:%S")

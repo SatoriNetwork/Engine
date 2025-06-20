@@ -78,6 +78,11 @@ class PilotModel(PilotModelInterface):
         df = pd.DataFrame(data)
 
         df_target = self.target.iloc[0:df.shape[0], :]
+
+        # handle nans
+        df_target = df_target.apply(lambda col: pd.to_numeric(col, errors='coerce'))
+        df_target = df_target.replace([np.inf, -np.inf], np.nan).fillna(0)  # or use another imputation strategy
+
         data = df_target.to_numpy(dtype=np.float64).flatten()
         df_target = pd.DataFrame(data)
 

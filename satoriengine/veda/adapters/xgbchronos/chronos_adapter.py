@@ -28,20 +28,25 @@ class PretrainedChronosAdapter(ModelAdapter):
             'HF_HOME', default='/Satori/Neuron/models/huggingface')
         os.makedirs(hfhome, exist_ok=True)
         deviceMap = 'cuda' if useGPU else 'cpu'
-        with PretrainedChronosAdapter._model_init_lock:
-            self.model = ChronosPipeline.from_pretrained(
-                "amazon/chronos-t5-large" if useGPU else "amazon/chronos-t5-small",
-                # "amazon/chronos-t5-tiny", # 8M
-                # "amazon/chronos-t5-mini", # 20M
-                # "amazon/chronos-t5-small", # 46M
-                # "amazon/chronos-t5-base", # 200M
-                # "amazon/chronos-t5-large", # 710M
-                # 'cpu' for any CPU, 'cuda' for Nvidia GPU, 'mps' for Apple Silicon
-                device_map=deviceMap,
-                torch_dtype=torch.bfloat16,
-                # force_download=True,
-            )
-        self.contextLen = 512  # historical context
+        try:
+            with PretrainedChronosAdapter._model_init_lock:
+                self.model = ChronosPipeline.from_pretrained(
+                    "amazon/chronos-t5-large" if useGPU else "amazon/chronos-t5-small",
+                    # "amazon/chronos-t5-tiny", # 8M
+                    # "amazon/chronos-t5-mini", # 20M
+                    # "amazon/chronos-t5-small", # 46M
+                    # "amazon/chronos-t5-base", # 200M
+                    # "amazon/chronos-t5-large", # 710M
+                    # 'cpu' for any CPU, 'cuda' for Nvidia GPU, 'mps' for Apple Silicon
+                    device_map=deviceMap,
+                    torch_dtype=torch.bfloat16,
+                    # force_download=True,
+                )
+            self.contextLen = 512  # historical context
+        except Exception as e:
+            print(f"Chronos model initialization error: {e}")
+            self.contextLen = 512
+            self.model = None
         #self.model.model.eval() # does not make it deterministic
 
     @staticmethod
@@ -58,6 +63,8 @@ class PretrainedChronosAdapter(ModelAdapter):
 
     def predict(self, data: pd.DataFrame, **kwargs) -> np.ndarray:
         data = data.values  # Convert DataFrame to numpy array
+        if self.model is None:
+            return np.asarray(data[-1], dtype=np.float32)
         # Squeeze only if the first dimension is 1
         if len(data.shape) > 1 and data.shape[0] == 1:
             data = np.squeeze(data, axis=0)
