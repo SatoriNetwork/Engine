@@ -17,7 +17,7 @@ from satorilib.wallet.evrmore.identity import EvrmoreIdentity
 from satorilib.pubsub import SatoriPubSubConn
 from satoriengine.veda import config
 from satoriengine.veda.data import StreamForecast, validate_single_entry
-from satoriengine.veda.adapters import ModelAdapter, StarterAdapter, XgbAdapter, XgbChronosAdapter
+from satoriengine.veda.adapters import ModelAdapter, StarterAdapter, XgbAdapter, XgbChronosAdapter, FastMVAdapter
 
 warnings.filterwarnings('ignore')
 setup(level=INFO)
