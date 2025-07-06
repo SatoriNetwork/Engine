@@ -189,23 +189,19 @@ class ModelManager(Cached):
 
         rows = getRows()
         
-        # Get the price and streamIdPredictor from the output stream (prediction stream)
+        # Get the price from the output stream (prediction stream)
         price_per_obs = 0.0
-        streamIdPredictor = None
         try:
             # The output stream is the prediction stream that we're pricing
             output_stream = self.output
-            # We need to get the stream from the database to access its price and uuid
+            # We need to get the stream from the database to access its price
             # This is a bit of a hack, but we'll try to get the price from the disk cache
             output_disk = self.diskOf(output_stream)
             if hasattr(output_disk, 'stream') and hasattr(output_disk.stream, 'price_per_obs'):
                 price_per_obs = output_disk.stream.price_per_obs or 0.0
-            if hasattr(output_disk, 'stream') and hasattr(output_disk.stream, 'streamId'):
-                streamIdPredictor = output_disk.stream.streamId
         except Exception as e:
-            # If we can't get the price or streamId, default to 0.0 and None
+            # If we can't get the price, default to 0.0
             price_per_obs = 0.0
-            streamIdPredictor = None
         
         self.lastOverview = StreamOverview(
             streamId=self.variable,
@@ -223,8 +219,7 @@ class ModelManager(Cached):
                 self, 'stableScore') else '',
             errs=self.errs if hasattr(self, 'errs') else [],
             subscribers='none',
-            price_per_obs=price_per_obs,
-            streamIdPredictor=streamIdPredictor)
+            price_per_obs=price_per_obs)
         return self.lastOverview
 
     def miniOverview(self):
