@@ -15,6 +15,11 @@ from satorilib.utils.time import datetimeToTimestamp, now
 from satorilib.datamanager import DataClient, DataServerApi, DataClientApi, PeerInfo, Message, Subscription
 from satorilib.wallet.evrmore.identity import EvrmoreIdentity
 from satorilib.pubsub import SatoriPubSubConn
+from satorilib.centrifugo import (
+    create_centrifugo_client,
+    create_subscription_handler,
+    subscribe_to_stream
+)
 from satoriengine.veda import config
 from satoriengine.veda.data import StreamForecast, validate_single_entry
 from satoriengine.veda.adapters import ModelAdapter, StarterAdapter, XgbAdapter, XgbChronosAdapter
@@ -50,6 +55,8 @@ class Engine:
                 'test': ['ws://test.satorinet.io:24603'],
                 'prod': ['ws://pubsub1.satorinet.io:24603', 'ws://pubsub5.satorinet.io:24603', 'ws://pubsub6.satorinet.io:24603']}['prod']
         self.transferProtocol: Union[str, None] = None
+        self.centrifugo = None
+        self.centrifugoSubscriptions: list = []
 
 
     def subConnect(self, key: str):
@@ -143,6 +150,70 @@ class Engine:
             #    connTo=ConnectionTo.pubsub,
             #    status=False))
 
+    async def centrifugoConnect(self, centrifugoPayload: dict):
+        """establish a centrifugo connection for subscribing"""
+        if not centrifugoPayload:
+            error("No centrifugo payload provided")
+            return
+            
+        token = centrifugoPayload.get('token')
+        ws_url = centrifugoPayload.get('ws_url')
+        
+        if not token or not ws_url:
+            error("Missing token or ws_url in centrifugo payload")
+            return
+        
+        try:
+            self.centrifugo = await create_centrifugo_client(
+                ws_url=ws_url,
+                token=token,
+                on_connected_callback=lambda x: info("Centrifugo connected"),
+                on_disconnected_callback=lambda x: info("Centrifugo disconnected"))
+            
+            await self.centrifugo.connect()
+            
+            # Subscribe to all streams
+            for subUuid in self.subscriptions.keys():
+                streamModel = self.streamModels.get(subUuid)
+                if streamModel and getattr(streamModel, 'usePubSub', True):
+                    sub = await subscribe_to_stream(
+                        client=self.centrifugo,
+                        stream_uuid=subUuid,
+                        events=create_subscription_handler(
+                            stream_uuid=subUuid,
+                            on_publication_callback=lambda ctx, uuid=subUuid: self.handleCentrifugoMessage(ctx, uuid)))
+                    self.centrifugoSubscriptions.append(sub)
+                    await sub.subscribe()
+                    info(f"Subscribed to stream {subUuid} via Centrifugo")
+        except Exception as e:
+            error(f"Failed to connect to Centrifugo: {e}")
+            
+    async def handleCentrifugoMessage(self, ctx, streamUuid: str):
+        """Handle messages from Centrifugo"""
+        try:
+            data = ctx.pub.data
+            
+            # Convert Centrifugo message to Observation format
+            # Create a message in the same format as pubsub would send
+            pubsub_formatted = {
+                "topic": json.dumps({"uuid": streamUuid}),
+                "data": data.get('value') or data.get('data'),
+                "time": data.get('time') or data.get('observationTime'),
+                "hash": data.get('hash') or data.get('observationHash')
+            }
+            obs = Observation.parse(json.dumps(pubsub_formatted))
+            
+            streamModel = self.streamModels.get(streamUuid)
+            if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
+                await streamModel.handleSubscriptionMessage(
+                    "Subscription",
+                    message=Message({
+                        'data': obs,
+                        'status': 'stream/observation'}),
+                    pubSubFlag=True)
+        except Exception as e:
+            error(f"Error handling Centrifugo message: {e}")
+
     async def initialize(self):
         await self.connectToDataServer()
         asyncio.create_task(self.stayConnectedForever())
@@ -233,9 +304,13 @@ class Engine:
                         info(pubSubResponse.senderMsg, color='green')
                 else:
                     raise Exception
-                if self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
+                # Always check for Centrifugo in transferProtocolPayload
+                if transferProtocolPayload and isinstance(transferProtocolPayload, dict) and 'centrifugo' in transferProtocolPayload:
+                    await self.centrifugoConnect(transferProtocolPayload['centrifugo'])
+                elif self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
+                    # Fall back to old pubsub only if no Centrifugo available
                     self.subConnect(key=transferProtocolKey)
-                    return
+                return
             except Exception:
                 warning(f"Failed to fetch pub-sub info, waiting for {waitingPeriod} seconds")
                 await asyncio.sleep(waitingPeriod)
