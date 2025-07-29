@@ -1,2 +1,0 @@
-from satoriengine.model.interfaces.pilot import PilotModelInterface
-from satoriengine.model.interfaces.stable import StableModelInterface
