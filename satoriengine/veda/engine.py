@@ -171,37 +171,30 @@ class Engine:
                 on_disconnected_callback=lambda x: info("Centrifugo disconnected"))
             
             await self.centrifugo.connect()
-            
-            # Subscribe to all streams
-            for subUuid in self.subscriptions.keys():
-                streamModel = self.streamModels.get(subUuid)
-                if streamModel and getattr(streamModel, 'usePubSub', True):
-                    sub = await subscribe_to_stream(
-                        client=self.centrifugo,
-                        stream_uuid=subUuid,
-                        events=create_subscription_handler(
-                            stream_uuid=subUuid,
-                            on_publication_callback=lambda ctx, uuid=subUuid: self.handleCentrifugoMessage(ctx, uuid)))
-                    self.centrifugoSubscriptions.append(sub)
-                    await sub.subscribe()
-                    info(f"Subscribed to stream {subUuid} via Centrifugo")
         except Exception as e:
             error(f"Failed to connect to Centrifugo: {e}")
             
     async def handleCentrifugoMessage(self, ctx, streamUuid: str):
         """Handle messages from Centrifugo"""
         try:
-            data = ctx.pub.data
+            raw_data = ctx.pub.data
             
-            # Convert Centrifugo message to Observation format
-            # Create a message in the same format as pubsub would send
-            pubsub_formatted = {
+            # Parse the JSON string to get the actual data
+            if isinstance(raw_data, str):
+                data = json.loads(raw_data)
+            else:
+                data = raw_data
+            
+            debug(f"Centrifugo received data for stream {streamUuid}: {data}")
+            
+            # Format data for Observation parsing
+            formatted_data = {
                 "topic": json.dumps({"uuid": streamUuid}),
-                "data": data.get('value') or data.get('data'),
-                "time": data.get('time') or data.get('observationTime'),
-                "hash": data.get('hash') or data.get('observationHash')
+                "data": data.get('value'),
+                "time": data.get('time'),
+                "hash": data.get('hash')
             }
-            obs = Observation.parse(json.dumps(pubsub_formatted))
+            obs = Observation.parse(json.dumps(formatted_data))
             
             streamModel = self.streamModels.get(streamUuid)
             if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
@@ -342,8 +335,35 @@ class Engine:
                     transferProtocol=self.transferProtocol)
             except Exception as e:
                 error(e)
+            # If using Centrifugo, ensure usePubSub is True
+            if self.centrifugo is not None:
+                self.streamModels[subUuid].usePubSub = True
             self.streamModels[subUuid].chooseAdapter(inplace=True)
             self.streamModels[subUuid].run_forever()
+        
+        # Now subscribe to Centrifugo streams after models are initialized
+        if self.centrifugo is not None:
+            for subUuid in self.subscriptions.keys():
+                streamModel = self.streamModels.get(subUuid)
+                if streamModel and getattr(streamModel, 'usePubSub', True):
+                    try:
+                        # Create a proper callback that captures the UUID correctly
+                        def create_callback(stream_uuid):
+                            async def callback(ctx):
+                                await self.handleCentrifugoMessage(ctx, stream_uuid)
+                            return callback
+                        
+                        sub = await subscribe_to_stream(
+                            client=self.centrifugo,
+                            stream_uuid=subUuid,
+                            events=create_subscription_handler(
+                                stream_uuid=subUuid,
+                                on_publication_callback=create_callback(subUuid)))
+                        self.centrifugoSubscriptions.append(sub)
+                        await sub.subscribe()
+                        info(f"Subscribed to Centrifugo stream {subUuid}")
+                    except Exception as e:
+                        error(f"Failed to subscribe to Centrifugo stream {subUuid}: {e}")
 
     def cleanupThreads(self):
         for thread in self.threads:
@@ -642,6 +662,7 @@ class StreamModel:
                 engineSubscribed=True)
 
     async def handleSubscriptionMessage(self, subscription: any,  message: Message, pubSubFlag: bool = False):
+        debug(f"Stream {self.streamUuid} received subscription message (pubsub: {pubSubFlag})")
         if message.status == DataClientApi.streamInactive.value:
             warning("Stream Inactive")
             await self.closePeerConnection()
@@ -677,10 +698,10 @@ class StreamModel:
 
     async def appendNewData(self, observation: Union[pd.DataFrame, dict], pubSubFlag: bool):
         """extract the data and save it to self.data"""
-        debug(observation, print=True)
         try:
             if pubSubFlag:
                 parsedData = json.loads(observation.raw)
+                debug(f"Stream {self.streamUuid} appending new data: {parsedData['data']} at {parsedData['time']}")
                 if validate_single_entry(parsedData["time"], parsedData["data"]):
                         await self.dataClientOfIntServer.insertStreamData(
                                 uuid=self.streamUuid,
