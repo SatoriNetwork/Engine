@@ -2,7 +2,6 @@ from typing import Union
 import os
 import json
 import copy
-import random
 import asyncio
 import warnings
 import threading
@@ -14,7 +13,6 @@ from satorilib.utils.system import getProcessorCount
 from satorilib.utils.time import datetimeToTimestamp, now
 from satorilib.datamanager import DataClient, DataServerApi, DataClientApi, PeerInfo, Message, Subscription
 from satorilib.wallet.evrmore.identity import EvrmoreIdentity
-from satorilib.pubsub import SatoriPubSubConn
 from satorilib.centrifugo import (
     create_centrifugo_client,
     create_subscription_handler,
@@ -47,108 +45,11 @@ class Engine:
         self.paused: bool = False
         self.threads: list[threading.Thread] = []
         self.identity: EvrmoreIdentity = EvrmoreIdentity('/Satori/Neuron/wallet/wallet.yaml')
-        self.sub: SatoriPubSubConn = None
-        self.urlPubsubs={
-                # 'local': ['ws://192.168.0.10:24603'],
-                'local': ['ws://pubsub1.satorinet.io:24603', 'ws://pubsub5.satorinet.io:24603', 'ws://pubsub6.satorinet.io:24603'],
-                'dev': ['ws://localhost:24603'],
-                'test': ['ws://test.satorinet.io:24603'],
-                'prod': ['ws://pubsub1.satorinet.io:24603', 'ws://pubsub5.satorinet.io:24603', 'ws://pubsub6.satorinet.io:24603']}['prod']
         self.transferProtocol: Union[str, None] = None
         self.centrifugo = None
         self.centrifugoSubscriptions: list = []
 
 
-    def subConnect(self, key: str):
-        """establish a random pubsub connection used only for subscribing"""
-
-        def establishConnection(
-            pubkey: str,
-            key: str,
-            url: str = None,
-            onConnect: callable = None,
-            onDisconnect: callable = None,
-            emergencyRestart: callable = None,
-            subscription: bool = True,
-        ):
-            """establishes a connection to the satori server, returns connection object"""
-
-            def router(response: str):
-                ''' gets observation from pubsub servers '''
-                # response:
-                # {"topic": "{\"source\": \"satori\", \"author\": \"021bd7999774a59b6d0e40d650c2ed24a49a54bdb0b46c922fd13afe8a4f3e4aeb\", \"stream\": \"coinbaseALGO-USD\", \"target\": \"data.rates.ALGO\"}", "data": "0.23114999999999997"}
-                if (
-                    response
-                    != "failure: error, a minimum 10 seconds between publications per topic."
-                ):
-                    if response.startswith('{"topic":') or response.startswith('{"data":'):
-                        try:
-                            obs = Observation.parse(response)
-                            streamModel = self.streamModels.get(obs.streamId.uuid)
-                            if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
-                                def run_async_in_thread():
-                                    try:
-                                        loop = asyncio.new_event_loop()
-                                        asyncio.set_event_loop(loop)
-                                        loop.run_until_complete(
-                                            streamModel.handleSubscriptionMessage(
-                                                "Subscription",
-                                                message=Message({
-                                                    'data': obs,
-                                                    'status': 'stream/observation'}),
-                                                pubSubFlag=True)
-                                        )
-                                    except Exception as e:
-                                        error(f"Exception in async thread: {e}")
-                                        import traceback
-                                        traceback.print_exc()
-                                    finally:
-                                        loop.close()
-                                        if thread in self.threads:
-                                            self.threads.remove(thread)
-                                
-                                thread = threading.Thread(target=run_async_in_thread)
-                                thread.daemon = True
-                                self.threads.append(thread)
-                                thread.start()
-                        except json.JSONDecodeError:
-                            error('received unparsable message:', response)
-                        except Exception as e:
-                            error('Error in pubsub observation', e)
-                    else:
-                        info('received:', response)
-
-            info(
-                'subscribing to:' if subscription else 'publishing to:', url, color='blue')
-            return SatoriPubSubConn(
-                uid=pubkey,
-                router=router if subscription else None,
-                payload=key,
-                url=url,
-                emergencyRestart=emergencyRestart,
-                onConnect=onConnect,
-                onDisconnect=onDisconnect)
-            # payload={
-            #    'publisher': ['stream-a'],
-            #    'subscriptions': ['stream-b', 'stream-c', 'stream-d']})
-
-
-        signature = self.identity.sign(key)
-        self.sub = establishConnection(
-            url=random.choice(self.urlPubsubs),
-            # url='ws://pubsub3.satorinet.io:24603',
-            pubkey=self.identity.publicKey,
-            key=signature.decode() + "|" + key,
-            emergencyRestart=lambda: print('emergencyRestart not implemented'),
-            onConnect=lambda: print('onConnect not implemented'),
-            onDisconnect=lambda: print('onDisconnect not implemented'))
-            # TODO: tell the UI we disconnected, and reconnected... somehow...
-            #onConnect=lambda: self.updateConnectionStatus(
-            #    connTo=ConnectionTo.pubsub,
-            #    status=True),
-            #onDisconnect=lambda: self.updateConnectionStatus(
-            #    connTo=ConnectionTo.pubsub,
-            #    status=False))
 
     async def centrifugoConnect(self, centrifugoPayload: dict):
         """establish a centrifugo connection for subscribing"""
@@ -300,9 +201,6 @@ class Engine:
                 # Always check for Centrifugo in transferProtocolPayload
                 if transferProtocolPayload and isinstance(transferProtocolPayload, dict) and 'centrifugo' in transferProtocolPayload:
                     await self.centrifugoConnect(transferProtocolPayload['centrifugo'])
-                elif self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
-                    # Fall back to old pubsub only if no Centrifugo available
-                    self.subConnect(key=transferProtocolKey)
                 return
             except Exception:
                 warning(f"Failed to fetch pub-sub info, waiting for {waitingPeriod} seconds")
