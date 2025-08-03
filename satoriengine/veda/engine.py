@@ -86,7 +86,6 @@ class Engine:
             else:
                 data = raw_data
             
-            debug(f"Centrifugo received data for stream {streamUuid}: {data}")
             
             # Format data for Observation parsing
             formatted_data = {
@@ -96,7 +95,6 @@ class Engine:
                 "hash": data.get('hash')
             }
             obs = Observation.parse(json.dumps(formatted_data))
-            
             streamModel = self.streamModels.get(streamUuid)
             if isinstance(streamModel, StreamModel) and getattr(streamModel, 'usePubSub', True):
                 await streamModel.handleSubscriptionMessage(
@@ -193,6 +191,7 @@ class Engine:
                     for sub_uuid, data in pubSubMapping.items():
                         # TODO : deal with supportive streams, ( data['supportiveUuid'] )
                         self.subscriptions[sub_uuid] = PeerInfo(data['dataStreamSubscribers'], data['dataStreamPublishers'])
+                        # self.subscriptions["883f30d2-854c-5dcf-aa0f-1a0e9ad21df7"] = PeerInfo(data['dataStreamSubscribers'], data['dataStreamPublishers'])
                         self.publications[data['publicationUuid']] = PeerInfo(data['predictiveStreamSubscribers'], data['predictiveStreamPublishers'])
                     if self.subscriptions:
                         info(pubSubResponse.senderMsg, color='green')
@@ -258,7 +257,6 @@ class Engine:
                                 stream_uuid=subUuid,
                                 on_publication_callback=create_callback(subUuid)))
                         self.centrifugoSubscriptions.append(sub)
-                        await sub.subscribe()
                         info(f"Subscribed to Centrifugo stream {subUuid}")
                     except Exception as e:
                         error(f"Failed to subscribe to Centrifugo stream {subUuid}: {e}")
@@ -268,6 +266,28 @@ class Engine:
             if not thread.is_alive():
                 self.threads.remove(thread)
         debug(f'prediction thread count: {len(self.threads)}')
+
+    async def cleanupCentrifugo(self):
+        """Clean up Centrifugo connections and subscriptions"""
+        try:
+            if hasattr(self, 'centrifugoSubscriptions') and self.centrifugoSubscriptions:
+                for subscription in self.centrifugoSubscriptions:
+                    try:
+                        await subscription.unsubscribe()
+                    except Exception as e:
+                        error(f"Failed to unsubscribe from Centrifugo stream: {e}")
+                self.centrifugoSubscriptions = []
+                
+            if hasattr(self, 'centrifugo') and self.centrifugo:
+                try:
+                    await self.centrifugo.disconnect()
+                    info("Centrifugo client disconnected")
+                except Exception as e:
+                    error(f"Failed to disconnect Centrifugo client: {e}")
+                finally:
+                    self.centrifugo = None
+        except Exception as e:
+            error(f"Error during Centrifugo cleanup: {e}")
 
 
 class StreamModel:
