@@ -834,8 +834,9 @@ class StreamModel:
                 import traceback
                 traceback.print_exc()
 
-        if self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
-            init_task = asyncio.create_task(self.p2pInit())
+        # TEMPORARILY DISABLED FOR CENTRIFUGO TESTING
+        # if self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
+        #     init_task = asyncio.create_task(self.p2pInit())
 
         self.thread = threading.Thread(target=training_loop_thread, daemon=True)
         self.thread.start()
