@@ -324,7 +324,7 @@ class StreamModel:
         self.rng = np.random.default_rng(37)
         self.publisherHost = None
         self.transferProtocol: str = transferProtocol
-        self.usePubSub: bool = False
+        self.usePubSub: bool = True
         self.internal: bool = False
 
     async def initialize(self):
