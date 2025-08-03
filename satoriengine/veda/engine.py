@@ -191,7 +191,6 @@ class Engine:
                     for sub_uuid, data in pubSubMapping.items():
                         # TODO : deal with supportive streams, ( data['supportiveUuid'] )
                         self.subscriptions[sub_uuid] = PeerInfo(data['dataStreamSubscribers'], data['dataStreamPublishers'])
-                        # self.subscriptions["883f30d2-854c-5dcf-aa0f-1a0e9ad21df7"] = PeerInfo(data['dataStreamSubscribers'], data['dataStreamPublishers'])
                         self.publications[data['publicationUuid']] = PeerInfo(data['predictiveStreamSubscribers'], data['predictiveStreamPublishers'])
                     if self.subscriptions:
                         info(pubSubResponse.senderMsg, color='green')
@@ -344,7 +343,7 @@ class StreamModel:
         self.rng = np.random.default_rng(37)
         self.publisherHost = None
         self.transferProtocol: str = transferProtocol
-        self.usePubSub: bool = True
+        self.usePubSub: bool = False
         self.internal: bool = False
 
     async def initialize(self):
@@ -854,9 +853,8 @@ class StreamModel:
                 import traceback
                 traceback.print_exc()
 
-        # TEMPORARILY DISABLED FOR CENTRIFUGO TESTING
-        # if self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
-        #     init_task = asyncio.create_task(self.p2pInit())
+        if self.transferProtocol == 'p2p-pubsub' or self.transferProtocol == 'p2p-proactive-pubsub':
+            init_task = asyncio.create_task(self.p2pInit())
 
         self.thread = threading.Thread(target=training_loop_thread, daemon=True)
         self.thread.start()
