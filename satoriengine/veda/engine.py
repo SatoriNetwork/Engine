@@ -241,7 +241,7 @@ class Engine:
         if self.centrifugo is not None:
             for subUuid in self.subscriptions.keys():
                 streamModel = self.streamModels.get(subUuid)
-                if streamModel and getattr(streamModel, 'usePubSub', True):
+                if streamModel:
                     try:
                         # Create a proper callback that captures the UUID correctly
                         def create_callback(stream_uuid):
